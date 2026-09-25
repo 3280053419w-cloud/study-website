@@ -18,7 +18,7 @@
     return {
       start: y + '-01-01',
       end: y + '-12-31',
-      restWeekdays: [0, 6],   /* 0 = 周日 … 6 = 周六 —— 默认周末休息 */
+      restWeekdays: [],       /* 默认不预设任何休息日，休息日完全由用户自己在周期面板里编排 */
       extraRest: [],          /* 额外休息日：法定节假日、寒暑假等，自己加 */
       extraWork: []           /* 调休学习日：本来是周末但那天要学 */
     };
@@ -372,6 +372,20 @@
       if (saved.track && trackById(saved.track)) state.track = saved.track;
       if (typeof saved.sel === 'string' && indexOfDate(saved.sel) >= 0) state.sel = saved.sel;
       if (saved.openMonths && typeof saved.openMonths === 'object') state.openMonths = saved.openMonths;
+
+      /* 一次性迁移：旧版本默认「周末双休」[0,6]，新版本改为不预设休息日。
+         仅当 restWeekdays 恰好等于旧默认、且没有用户另加的调休学习日时，视为旧默认清空；
+         用户自己编排过（勾掉过、或加过调休）的组合不会被误伤。
+         放在 load 末尾（所有字段都恢复完）再 save，避免把未恢复的字段写空。 */
+      if (saved.plan && saved.plan.period && Array.isArray(saved.plan.period.restWeekdays)) {
+        var rw = saved.plan.period.restWeekdays.map(Number).sort();
+        var isOldDefault = rw.length === 2 && rw[0] === 0 && rw[1] === 6;
+        var hasCustomWork = Array.isArray(saved.plan.period.extraWork) && saved.plan.period.extraWork.length > 0;
+        if (isOldDefault && !hasCustomWork) {
+          state.plan.period.restWeekdays = [];
+          save();
+        }
+      }
     } catch (e) {
       /* 隐私模式 / 配额满 —— 静默退回内存态 */
       state.steps = {};
