@@ -116,6 +116,24 @@ GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以
 
 ---
 
+## 桌面快捷方式（带图标）
+
+想双击桌面图标直达？项目自带图标文件 `assets/icon/study-website.ico`（另有 `icon-1024.png` / `icon-256.png`，想用在别处直接拿）。
+
+**Windows**
+
+1. 右键桌面 → 新建 → 快捷方式
+2. 位置填 `index.html` 的完整路径（或本地服务器地址）
+3. 右键这个快捷方式 → 属性 → 更改图标 → 浏览选中 `assets/icon/study-website.ico`
+
+**macOS**
+
+1. 选中 `index.html`，`⌘ + Option` 拖到桌面生成替身；或浏览器打开后「更多工具 → 创建快捷方式」
+
+> 浏览器标签页 / 收藏夹里的图标（favicon）已经指向同一套图标，风格是一致的。
+
+---
+
 ## 数据存在哪 / 隐私
 
 这个站点**没有后端、没有账号、没有埋点**。全项目只有 **1 个 `fetch()`**，抓的是本地 `assets/dxf/*.dxf`。
@@ -156,6 +174,7 @@ GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以
 ├── README.md
 ├── assets/
 │   ├── logo.webp
+│   ├── icon/                   # 站点图标（ico + png，桌面快捷方式用）
 │   ├── readme/                 # README 用的两张截图
 │   └── dxf/                    # 40 张 DXF + 40 张预览 PNG
 └── fonts/
