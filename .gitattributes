@@ -1,0 +1,16 @@
+# 默认按文本处理，diff 友好
+* text=auto eol=lf
+
+# ---- 明确标记为二进制，避免 Git 当成文本做 diff ----
+*.png   binary
+*.webp  binary
+*.jpg   binary
+*.jpeg  binary
+*.woff2 binary
+*.dxf   binary
+*.mp4   binary
+
+# ---- 让 GitHub 语言统计正确识别 ----
+*.html linguist-detectable=true
+*.css  linguist-detectable=true
+*.js   linguist-detectable=true

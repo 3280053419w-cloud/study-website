@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#000000" />
+<title>学习计划板 · 把学习排成你自己的样子</title>
+<meta name="description" content="可自定义学习计划板：周期、作息、学习模块全自定义。纯前端、零依赖、本地存储，开源免费。" />
+<link rel="icon" href="assets/logo.webp" type="image/webp" />
+
+<!-- Inter (UI) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<!-- BubbledotICG-FinePos (primary display, retro dot-matrix) -->
+<link href="https://db.onlinewebfonts.com/c/8cb707a9b8a73f8a7403336b861c3074?family=BubbledotICG-FinePos" rel="stylesheet" />
+
+<!-- Font Awesome 6.5.2 (icons) -->
+<link
+  rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+  integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
+  crossorigin="anonymous"
+  referrerpolicy="no-referrer"
+/>
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+<!-- ==================================================================
+     REGION 1 — LANDING (single viewport, full-bleed video)
+     ================================================================== -->
+<div class="landing" id="home">
+
+  <div class="bg" aria-hidden="true">
+    <video class="bg-video" autoplay muted loop playsinline preload="auto">
+      <source
+        src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260809_012548_ef22562c-c0ae-4816-ad9d-f8922af4e6a7.mp4"
+        type="video/mp4"
+      />
+    </video>
+  </div>
+
+  <div class="page">
+
+    <!-- ---------- Header ---------- -->
+    <header class="site-header anim" style="--d: .05s">
+      <a class="logo-btn" href="#home" aria-label="返回顶部">
+        <img src="assets/logo.webp" alt="" width="52" height="52" />
+      </a>
+
+      <nav class="nav-pill" aria-label="主导航">
+        <a class="nav-link is-active" href="#home">首页</a>
+        <a class="nav-link" href="#plan">计划板</a>
+        <a class="nav-link" href="#tracks">学习模块</a>
+        <a class="nav-link" href="#repo">资源仓库</a>
+      </nav>
+
+      <a class="signin" href="#board">进入计划板</a>
+
+      <button class="burger" id="burger" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="mobileMenu">
+        <span></span><span></span><span></span>
+      </button>
+    </header>
+
+    <!-- ---------- Hero ---------- -->
+    <main class="hero">
+
+      <div class="trust anim" style="--d: .05s">
+        <div class="trust-avatars">
+          <span class="avatar a1"><i class="fa-solid fa-code-branch" aria-hidden="true"></i></span>
+          <span class="avatar a2"><i class="fa-solid fa-gift" aria-hidden="true"></i></span>
+          <span class="avatar a3"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
+        </div>
+        <span class="trust-pill">开源 · 免费 · 本地存储</span>
+      </div>
+
+      <h1 class="headline anim">
+        <span class="line l1">把学习</span>
+        <span class="line l2">排成你自己的样子</span>
+      </h1>
+
+      <p class="subhead anim" style="--d: .28s">
+        周期、作息、学习模块全自定义 —— 纯前端、零依赖，数据只存在你自己的浏览器里。
+      </p>
+
+      <a class="cta anim" href="#plan" style="--d: .4s">开始排计划</a>
+    </main>
+
+    <!-- ---------- Stats footer ---------- -->
+    <footer class="stats">
+      <article class="stat anim" style="--d: .5s">
+        <div class="stat-icon">&lt;</div>
+        <div class="stat-value"><span class="num" data-target="365" data-decimals="0">0</span><span class="suffix">天</span></div>
+        <div class="stat-label">周期可调</div>
+      </article>
+      <article class="stat anim" style="--d: .58s">
+        <div class="stat-icon">%</div>
+        <div class="stat-value"><span class="num" data-target="40" data-decimals="0">0</span><span class="suffix">张</span></div>
+        <div class="stat-label">练习图纸</div>
+      </article>
+      <article class="stat anim" style="--d: .66s">
+        <div class="stat-icon">*</div>
+        <div class="stat-value"><span class="num" data-target="0" data-decimals="0">0</span><span class="suffix">依赖</span></div>
+        <div class="stat-label">纯前端</div>
+      </article>
+      <article class="stat anim" style="--d: .74s">
+        <div class="stat-icon">#</div>
+        <div class="stat-value"><span class="num" data-target="100" data-decimals="0">0</span><span class="suffix">%</span></div>
+        <div class="stat-label">本地存储</div>
+      </article>
+    </footer>
+
+    <!-- ---------- Scroll cue into the plan board ---------- -->
+    <a class="scroll-cue" href="#plan">
+      <span class="cue-text" id="cueText">学习计划</span>
+      <span class="cue-arrow" aria-hidden="true"></span>
+    </a>
+  </div>
+</div>
+
+<!-- mobile overlay + sheet -->
+<div class="overlay" id="overlay" hidden></div>
+<nav class="sheet" id="mobileMenu" hidden aria-label="移动端导航">
+  <a class="sheet-link is-active" href="#home">首页</a>
+  <a class="sheet-link" href="#plan">计划板</a>
+  <a class="sheet-link" href="#tracks">学习模块</a>
+  <a class="sheet-link" href="#repo">资源仓库</a>
+  <a class="sheet-signin" href="#board">进入计划板</a>
+</nav>
+
+
+<!-- ==================================================================
+     REGION 2 — PLAN BOARD (scroll region)
+     ================================================================== -->
+<section class="plan" id="plan">
+  <div class="plan-wrap">
+
+    <header class="plan-head reveal">
+      <p class="eyebrow">Plan Board · 学习计划板</p>
+      <h2 class="plan-title"><span class="line" id="planTitle">Plan</span></h2>
+      <p class="plan-sub" id="planSub"></p>
+      <div class="today-bar" id="todayBar"></div>
+      <div class="plan-legend">
+        <span class="lg lg-study" id="lgStudy"><i></i>学习</span>
+        <span class="lg lg-rest" id="lgRest"><i></i>休息</span>
+        <span class="lg lg-done"><i></i>已完成</span>
+      </div>
+    </header>
+
+    <!-- ---------- Progress board ---------- -->
+    <div class="board" id="board">
+      <article class="metric reveal">
+        <div class="metric-icon">&lt;</div>
+        <div class="metric-value" id="mDay">—</div>
+        <div class="metric-label">周期进度</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon">%</div>
+        <div class="metric-value" id="mStudy">0<span class="mu">/10</span></div>
+        <div class="metric-label">学习日已打卡</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon">*</div>
+        <div class="metric-value" id="mSlot">0<span class="mu">段</span></div>
+        <div class="metric-label">累计打卡时段</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon">#</div>
+        <div class="metric-value" id="mStreak">0<span class="mu">天</span></div>
+        <div class="metric-label">连续打卡</div>
+      </article>
+    </div>
+
+    <!-- ---------- 计划周期（可自定义） ---------- -->
+    <div class="cal-block reveal">
+      <div class="block-head">
+        <h3 class="block-title" id="calTitle">计划周期总览</h3>
+        <p class="block-hint">点任意一天，展开当天的时间轴和复盘</p>
+        <div class="period-bar">
+          <button class="tt-btn" type="button" id="periodToggle" aria-expanded="false"
+                  aria-controls="periodPanel">⚙ 计划周期</button>
+          <span class="period-brief" id="periodBrief"></span>
+        </div>
+      </div>
+
+      <div class="period" id="periodPanel" hidden>
+        <div class="pd-grid">
+          <label class="pd-field">
+            <span class="pd-label">开始日期</span>
+            <input class="pd-input" type="date" id="pdStart" />
+          </label>
+          <label class="pd-field">
+            <span class="pd-label">结束日期</span>
+            <input class="pd-input" type="date" id="pdEnd" />
+          </label>
+          <div class="pd-field">
+            <span class="pd-label">快捷区间</span>
+            <div class="pd-quick">
+              <button class="pd-chip" type="button" data-pd-quick="thisYear">今年</button>
+              <button class="pd-chip" type="button" data-pd-quick="nextYear">明年</button>
+              <button class="pd-chip" type="button" data-pd-quick="thisMonth">本月</button>
+              <button class="pd-chip" type="button" data-pd-quick="season">本学年</button>
+              <button class="pd-chip" type="button" data-pd-quick="quarter">近 90 天</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">每周休息日<span class="pd-tip">不勾的就是学习日</span></span>
+          <div class="pd-week" id="pdWeek"></div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">额外休息日<span class="pd-tip">法定节假日、寒暑假等</span></span>
+          <div class="pd-add">
+            <input class="pd-input" type="date" id="pdRestDate" />
+            <button class="pd-chip pd-add-btn" type="button" data-pd-add="rest">＋ 加休息日</button>
+          </div>
+          <div class="pd-list" id="pdRestList"></div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">调休学习日<span class="pd-tip">本来是周末、但那天要学</span></span>
+          <div class="pd-add">
+            <input class="pd-input" type="date" id="pdWorkDate" />
+            <button class="pd-chip pd-add-btn" type="button" data-pd-add="work">＋ 加学习日</button>
+          </div>
+          <div class="pd-list" id="pdWorkList"></div>
+        </div>
+
+        <div class="pd-foot">
+          <span class="pd-stat" id="periodStat"></span>
+          <button class="mb mb-primary" type="button" data-pd-act="apply">应用</button>
+          <button class="mb mb-ghost" type="button" data-pd-act="cancel">取消</button>
+        </div>
+      </div>
+
+      <div class="cal" id="cal"></div>
+    </div>
+
+    <!-- ---------- Selected day detail ---------- -->
+    <div class="day-panel reveal" id="dayPanel">
+      <header class="dp-head">
+        <div class="dp-left">
+          <p class="dp-kicker" id="dpKicker">—</p>
+          <h3 class="dp-title" id="dpTitle">—</h3>
+        </div>
+        <span class="dp-badge" id="dpBadge">休息</span>
+      </header>
+
+      <div class="tl-head" id="tlHead"></div>
+      <ol class="timeline" id="timeline"></ol>
+
+      <div class="review">
+        <h4 class="review-title">当日复盘 · 三问</h4>
+        <p class="review-hint">只记三件事，不写长篇。完成主线再补，别把复盘变成负担。</p>
+        <div class="review-grid">
+          <label class="rv-field">
+            <span>完成了什么</span>
+            <textarea id="rvDone" rows="3" placeholder="例：今天那两小时把第三章例题过完了，笔记也整完了"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>卡在哪里</span>
+            <textarea id="rvStuck" rows="3" placeholder="例：第二题卡在公式变形，明天先把这一节重看一遍"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>明天先做什么</span>
+            <textarea id="rvNext" rows="3" placeholder="例：先把今天卡住的那节补上，再往后推一节"></textarea>
+          </label>
+        </div>
+        <p class="save-hint" id="saveHint">随打随存，存在本机浏览器里</p>
+      </div>
+    </div>
+
+    <!-- ---------- Four tracks · 顶部标签翻页 ---------- -->
+    <section class="tracks reveal" id="tracks">
+      <div class="block-head">
+      <p class="eyebrow">Tracks</p>
+      <h3 class="block-title">学习模块 · 随便加、随便改</h3>
+      <p class="block-sub">
+        出厂带四条起步线：专业课、Python、AI、英语 —— 每条线有阶段大纲、配套资源、练习图纸和本线笔记。
+        <b>这些都只是起点</b>：点「编辑计划」，模块和任务随你增删改，加成你自己的课程表、考证计划、读书清单都行。
+      </p>
+      </div>
+
+      <div class="track-tools" id="trackTools">
+        <button class="tt-btn tt-primary" type="button" data-tool="edit" id="editToggle"
+                aria-pressed="false">✎ 编辑计划</button>
+        <button class="tt-btn" type="button" data-tool="export">↓ 导出 JSON</button>
+        <button class="tt-btn" type="button" data-tool="import">↑ 导入 JSON</button>
+        <button class="tt-btn tt-danger" type="button" data-tool="reset">恢复默认</button>
+        <input type="file" id="planFile" accept="application/json,.json" hidden>
+      </div>
+      <p class="track-tools-hint" id="toolsHint"></p>
+
+      <div class="track-tabs" id="trackTabs" role="tablist" aria-label="学习模块"></div>
+      <div class="track-panels" id="trackPanels"></div>
+    </section>
+
+    <!-- ---------- 资源仓库 ---------- -->
+    <section class="repo reveal" id="repo">
+      <div class="block-head">
+        <p class="eyebrow">Library</p>
+        <h3 class="block-title">资源仓库</h3>
+        <p class="block-sub">
+          两个仓库：上面是随站附带的 <b>CAD 练习图纸仓库</b>，40 张国标图随时取用；
+          下面是 <b>我的资料仓库</b> —— 课程链接、图片、PDF、笔记都往这儿放，按主题归好，下次一眼就能翻到。
+        </p>
+      </div>
+
+      <!-- ============ A. CAD 图纸仓库 ============ -->
+      <div class="repo-block">
+        <div class="rb-head">
+          <h4 class="rb-title">CAD 练习图纸仓库 <span class="rb-count" id="galCount"></span></h4>
+          <div class="rb-acts">
+            <button class="tt-btn" type="button" data-gal="zip" id="galZip">↓ 打包下载</button>
+          </div>
+        </div>
+        <p class="rb-note">
+          国标 A3 图幅 · 10 个图形 × 4 个版本：<b>摹</b>（带尺寸照着画）、<b>临</b>（无尺寸照着临）、
+          <b>默</b>（只给尺寸自己画）、<b>检</b>（标了易错点对照检查）。
+          点缩略图看大图，DXF 用任意 CAD 软件打开就能画。
+        </p>
+
+        <div class="gal-filter" id="galFilter">
+          <div class="gf-row" id="gfShape"></div>
+          <div class="gf-row" id="gfMode"></div>
+        </div>
+
+        <div class="gal" id="gal"></div>
+      </div>
+
+      <!-- ============ B. 我的资料仓库 ============ -->
+      <div class="repo-block">
+        <div class="rb-head">
+          <h4 class="rb-title">我的资料仓库 <span class="rb-count" id="libCount"></span></h4>
+          <div class="rb-acts">
+            <button class="tt-btn" type="button" data-lib="link">＋ 加链接</button>
+            <button class="tt-btn" type="button" data-lib="pick">↑ 加文件</button>
+            <input type="file" id="libFile" multiple hidden>
+          </div>
+        </div>
+        <p class="rb-note">
+          链接会跟着「导出 JSON」一起走，换台电脑也还在；
+          本地上传的图片 / 文档只存在这台设备的浏览器里（IndexedDB），不上传、不联网，也<b>不会</b>进 JSON。
+        </p>
+        <p class="rb-note rb-warn" id="libWarn" hidden></p>
+
+        <div class="lib-drop" id="libDrop">
+          <span class="ld-icon" aria-hidden="true">↑</span>
+          <span class="ld-text">把图片 / PDF / 文档拖到这里，或点上面的「加文件」</span>
+        </div>
+
+        <div class="lib" id="lib"></div>
+      </div>
+    </section>
+
+    <footer class="plan-foot">
+      <p class="foot-strong">这是一个通用的学习计划板：先定周期，再定每天几点做什么，最后把要学的东西排成模块。</p>
+      <p class="foot-strong">出厂那四条线（专业课 / Python / AI / 英语）只是起步模板，不是给你规定的 —— 全都可以换掉。</p>
+      <p>周期想多长就多长：几天、一个学期、一整年都行。休息日按星期设，节假日和调休可以单独加。</p>
+      <p>每天的作息也是一个模版：学习日和休息日各一套，几点做什么、哪几段算主线，都能自己改。</p>
+      <p>配套 40 张国标练习图纸：10 个图形 × 摹 / 临 / 默 / 检 各一张，DXF 格式，用任意 CAD 软件都能打开。</p>
+      <p><b>整套计划都是模板，不是定死的。</b>点「编辑计划」增删改模块、任务、时段；
+        点「计划周期」改起止日期和休息规则；
+        用「导出 JSON」备份或分享给别人，用「导入 JSON」在别的电脑上恢复。</p>
+      <p>所有内容只存在你自己这台设备的浏览器里（localStorage），不上传、不联网、不需要注册。</p>
+      <p id="footPeriod"></p>
+    </footer>
+  </div>
+</section>
+
+<!-- 大图预览（图纸 / 图片通用） -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-x" type="button" id="lbX" aria-label="关闭预览">×</button>
+  <div class="lb-stage"><img class="lb-img" id="lbImg" alt="" /></div>
+  <div class="lb-bar">
+    <span class="lb-name" id="lbName"></span>
+    <span class="lb-meta" id="lbMeta"></span>
+    <a class="mb mb-primary" id="lbDl" download>↓ 下载</a>
+  </div>
+</div>
+
+<script src="main.js"></script>
+</body>
+</html>

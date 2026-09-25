@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2026 study-website contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## 附：随仓库分发的第三方资源与授权
+
+本仓库代码以上述 MIT 许可发布。仓库内另含以下第三方资源，各自的授权如下 ——
+再分发或商用前请自行核对。
+
+| 资源 | 位置 | 授权 |
+|---|---|---|
+| Geist Pixel Circle 字体 | `fonts/GeistPixel-Circle.woff2` | SIL Open Font License 1.1 |
+| Inter 字体 | 运行时从 Google Fonts 加载（未随仓库分发） | SIL Open Font License 1.1 |
+| Font Awesome 6.5.2 图标 | 运行时从 cdnjs 加载（未随仓库分发） | CC BY 4.0 / SIL OFL 1.1 / MIT |
+| BubbledotICG-FinePos 字体 | 运行时从 onlinewebfonts 加载（未随仓库分发） | 见该站说明，链路不如 Google Fonts 清晰 |
+| 首页背景视频 | 运行时从第三方 CloudFront 加载（未随仓库分发） | 非本项目所有，仅作占位演示 |
+| 40 张机械制图练习图纸 | `assets/dxf/` | 依据中国国家标准（GB/T）绘制，随本仓库以 MIT 许可分发 |
+
+> 图纸依据的国标：GB/T 14689（图幅）、GB/T 4457.4（图线）、GB/T 4458.4（尺寸注法）、
+> GB/T 10609.1（标题栏）、GB/T 14691（字体）、**第一角投影法**。
