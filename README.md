@@ -5,6 +5,9 @@
 >
 > A dependency-free, fully offline study planner. Define your own period, schedule, and modules — plus 40 GB/T mechanical-drawing blueprints.
 
+**在线试玩 → https://3280053419w-cloud.github.io/study-website/**
+（数据仍存在你自己的浏览器里，站点不收集任何东西。想要真正离线，往下看「快速开始」。）
+
 ![计划板](assets/readme/board.png)
 
 ---
@@ -140,6 +143,7 @@ npx serve .
 
 **方式三：丢到静态托管。** 全部用相对路径，不需要改一行代码 ——
 GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以。
+本仓库已经开了 GitHub Pages，线上地址就是上面的「在线试玩」。
 
 ---
 
