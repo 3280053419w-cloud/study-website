@@ -1,9 +1,13 @@
 /* ==================================================================
-   Intelligence Designed To Evolve — main.js
-   Region 1: landing interactions (stats count-up, mobile menu)
+   学习计划板 · study-website — main.js
+   Region 1: 首屏（数字滚动、本地 Canvas 点阵背景、移动端菜单）
    Region 2: 可自定义学习计划板（周期 / 日历 / 时间轴 / 复盘 / 笔记 / 模块）
    Region 3: 计划编辑（模块、任务、时段、周期、JSON 导入导出）
-   No framework. State persists in localStorage only.
+   Region 4: 可自定义周期（月分块年历 / 周期设置面板 / 每日时段编辑）
+   Region 5: 资源仓库（CAD 图纸画廊 / 我的资料仓库 / 大图预览）
+   Region 6: 数据中心（热力图 / 各线完成度 / 打卡趋势）
+   Region 7: 复盘墙（汇总 / 搜索 / 筛选 / 导出 Markdown）
+   无框架、无构建、无外部请求。状态只存在 localStorage 里。
    ================================================================== */
 (function () {
   'use strict';
@@ -231,6 +235,8 @@
     track: '',
     steps: {},                 /* { [trackId]: { [stepSid]: true } } */
     editing: false,
+    lastExport: 0,             /* 上次导出 JSON 的时间戳 —— 用于「该备份了」提醒 */
+    backupMuted: 0,            /* 用户手动关掉备份提醒的时间戳 */
     plan: defaultPlan()
   };
 
@@ -369,6 +375,9 @@
         });
       }
 
+      if (typeof saved.lastExport === 'number') state.lastExport = saved.lastExport;
+      if (typeof saved.backupMuted === 'number') state.backupMuted = saved.backupMuted;
+
       if (saved.track && trackById(saved.track)) state.track = saved.track;
       if (typeof saved.sel === 'string' && indexOfDate(saved.sel) >= 0) state.sel = saved.sel;
       if (saved.openMonths && typeof saved.openMonths === 'object') state.openMonths = saved.openMonths;
@@ -405,7 +414,9 @@
         sel: state.sel,
         openMonths: state.openMonths,
         track: state.track,
-        links: state.links
+        links: state.links,
+        lastExport: state.lastExport,
+        backupMuted: state.backupMuted
       }));
     } catch (e) {}
   }
@@ -638,25 +649,125 @@
   }
 
   /* ----------------------------------------------------------------
-     Region 1 — background video efficiency
+     Region 1 — 本地 Canvas 点阵背景
+     原来是 CloudFront 上的背景视频，现在改成纯本地绘制：
+     黑底 + 一片缓慢呼吸的点阵，从中心向外走一圈环形波。
+     - 零外部请求、零额外体积，断网可用
+     - prefers-reduced-motion: reduce → 只画一帧静态点阵，不跑动画
+     - 标签页切到后台 / 首屏滚出视野 → 暂停，省电
      ---------------------------------------------------------------- */
-  function initVideo() {
-    var video = document.querySelector('.bg-video');
-    var landing = document.querySelector('.landing');
-    if (!video || !landing || !('IntersectionObserver' in window)) return;
+  function initDotMatrix() {
+    var cv = el('bgCanvas');
+    if (!cv || !cv.getContext) return;
 
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) {
-          var p = video.play();
-          if (p && p.catch) p.catch(function () {});
-        } else {
-          video.pause();
+    var ctx = cv.getContext('2d');
+    var reduce = !!(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+    var dots = [];
+    var W = 0, H = 0, cx = 0, cy = 0, maxD = 1;
+    var raf = null, running = false, t0 = 0;
+
+    function build() {
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = cv.clientWidth || window.innerWidth;
+      H = cv.clientHeight || window.innerHeight;
+      cv.width = Math.round(W * dpr);
+      cv.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      /* 点阵密度：约每 26px 一个点。小屏自动稀一点，避免糊成一片 */
+      var gap = Math.max(16, Math.round(Math.min(W, H) / 27));
+      var cols = Math.ceil(W / gap) + 1;
+      var rows = Math.ceil(H / gap) + 1;
+      var ox = (W - (cols - 1) * gap) / 2;
+      var oy = (H - (rows - 1) * gap) / 2;
+
+      dots = [];
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          dots.push({ x: ox + c * gap, y: oy + r * gap });
         }
-      });
-    }, { threshold: 0.05 });
+      }
 
-    io.observe(landing);
+      cx = W / 2;
+      cy = H * 0.44;                    /* 与标题重心对齐 */
+      maxD = Math.sqrt(cx * cx + cy * cy) || 1;
+    }
+
+    function paint(ts) {
+      ctx.clearRect(0, 0, W, H);
+
+      var time = reduce ? 900 : (ts - t0);
+      var BASE = 0.055;
+      var AMP = 0.17;
+
+      for (var i = 0; i < dots.length; i++) {
+        var d = dots[i];
+        var dx = d.x - cx, dy = d.y - cy;
+        var dist = Math.sqrt(dx * dx + dy * dy) / maxD;
+
+        /* 从中心向外扩散的慢波 + 一点整体呼吸 */
+        var w = Math.sin(dist * 5.4 - time * 0.00105);
+        var breath = Math.sin(time * 0.00042) * 0.5;
+        var e = (w + breath + 1.4) / 2.8;
+        if (e < 0) e = 0; else if (e > 1) e = 1;
+        e = e * e * (3 - 2 * e);        /* smoothstep：亮暗过渡更柔 */
+
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 0.9 + e * 1.7, 0, 6.2832);
+        ctx.fillStyle = 'rgba(255,255,255,' + (BASE + e * AMP).toFixed(3) + ')';
+        ctx.fill();
+      }
+    }
+
+    function loop(ts) {
+      if (!running) return;
+      if (!t0) t0 = ts;
+      paint(ts);
+      raf = window.requestAnimationFrame(loop);
+    }
+
+    function start() {
+      if (reduce || running) return;
+      running = true;
+      raf = window.requestAnimationFrame(loop);
+    }
+
+    function stop() {
+      running = false;
+      if (raf) { window.cancelAnimationFrame(raf); raf = null; }
+    }
+
+    build();
+    if (reduce) paint(0);
+    else start();
+
+    var rz = null;
+    window.addEventListener('resize', function () {
+      if (rz) window.clearTimeout(rz);
+      rz = window.setTimeout(function () {
+        build();
+        if (reduce) paint(0);
+      }, 180);
+    });
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else { t0 = 0; start(); }
+    });
+
+    if ('IntersectionObserver' in window) {
+      var landing = document.querySelector('.landing');
+      if (landing) {
+        new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (en.isIntersecting) start();
+            else stop();
+          });
+        }, { threshold: 0.02 }).observe(landing);
+      }
+    }
   }
 
   /* ----------------------------------------------------------------
@@ -788,6 +899,9 @@
     renderCal();
     renderDay();
     renderTracks();
+    renderBackupTip();
+    renderStats();
+    renderJournal();
   }
 
   /* ----------------------------------------------------------------
@@ -2155,6 +2269,12 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+
+    /* 记下这次导出时间，备份提醒据此判断「多久没导了」 */
+    state.lastExport = Date.now();
+    save();
+    renderBackupTip();
+
     flashTools('已导出 JSON —— 存好，可以分享给同学，也能再导入回来');
   }
 
@@ -3205,6 +3325,507 @@
   }
 
   /* ----------------------------------------------------------------
+     Region 2 — 备份提醒
+     数据只在本机浏览器里，清缓存就没了。隔太久没导出就温和提醒一次：
+     不弹窗、不打断；用户点掉之后就安静 30 天，不再骚扰。
+     ---------------------------------------------------------------- */
+  var EXPORT_TIP_DAYS = 14;
+  var MUTE_DAYS = 30;
+
+  function daysSince(ts) {
+    return ts ? (Date.now() - ts) / 86400000 : Infinity;
+  }
+
+  function renderBackupTip() {
+    var tip = el('backupTip');
+    if (!tip) return;
+
+    var hasData = countCheckedSlots() > 0;
+    var stale = daysSince(state.lastExport) > EXPORT_TIP_DAYS;
+    var muted = daysSince(state.backupMuted) < MUTE_DAYS;
+
+    if (!hasData || !stale || muted) { tip.hidden = true; return; }
+
+    var txt = el('btText');
+    if (txt) {
+      txt.textContent = state.lastExport
+        ? ('已经有 ' + Math.floor(daysSince(state.lastExport)) +
+           ' 天没导出备份了。这些数据只在这台设备的浏览器里，清掉缓存就找不回来 —— 去「学习模块」点一下「导出 JSON」。')
+        : ('你还没导出过备份。这些打卡和复盘只存在这台设备的浏览器里，清掉缓存就没了 —— 去「学习模块」点一下「导出 JSON」。');
+    }
+    tip.hidden = false;
+  }
+
+  function initBackupTip() {
+    var btn = el('btClose');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      state.backupMuted = Date.now();
+      save();
+      renderBackupTip();
+    });
+  }
+
+  /* ==================================================================
+     Region 6 — 数据中心
+     所有指标都从已有的 state 推导，不新增任何存储字段。
+     ================================================================== */
+
+  /* 当天「主线时段」的完成情况 —— 热力图色阶和统计都用它 */
+  function dayProgress(dayKey) {
+    var i = indexOfDate(dayKey);
+    if (i < 0) return null;
+    var day = days()[i];
+    var sl = slotsOf(day);
+    if (!sl.length) return { day: day, done: 0, total: 0, ratio: 0 };
+    var core = sl.filter(function (x) { return x.kind === 'core'; });
+    var list = core.length ? core : sl;
+    var done = 0;
+    for (var k = 0; k < list.length; k++) {
+      if (isChecked(dayKey, list[k].id)) done++;
+    }
+    return { day: day, done: done, total: list.length, ratio: done / list.length };
+  }
+
+  /* 最长连续「完成学习日」。休息日跳过：既不计入、也不打断连续。 */
+  function bestStreak() {
+    var a = days(), best = 0, cur = 0;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].rest) continue;
+      if (dayComplete(a[i].d)) {
+        cur++;
+        if (cur > best) best = cur;
+      } else {
+        cur = 0;
+      }
+    }
+    return best;
+  }
+
+  /* 周期内「已经过去的天数」—— 日均打卡时段的分母 */
+  function elapsedDays() {
+    var a = days();
+    if (!a.length) return 0;
+    var t = todayKey();
+    if (t < a[0].d) return 0;
+    if (t > a[a.length - 1].d) return a.length;
+    return indexOfDate(t) + 1;
+  }
+
+  /* 周期内每一天的打卡时段数（一次聚合，趋势图直接用） */
+  function checkCountByDate() {
+    var inP = {};
+    var a = days();
+    for (var i = 0; i < a.length; i++) inP[a[i].d] = true;
+    var m = {};
+    Object.keys(state.checks).forEach(function (k) {
+      if (!state.checks[k]) return;
+      var d = k.slice(0, 10);
+      if (!inP[d]) return;
+      m[d] = (m[d] || 0) + 1;
+    });
+    return m;
+  }
+
+  function renderStats() {
+    var best = el('sBest');
+    if (best) best.innerHTML = bestStreak() + '<span class="mu">天</span>';
+
+    var daysEl = el('sDays');
+    if (daysEl) daysEl.innerHTML = countStudyDone() + '<span class="mu">天</span>';
+
+    var slots = countCheckedSlots();
+    var slotEl = el('sSlots');
+    if (slotEl) slotEl.innerHTML = slots + '<span class="mu">段</span>';
+
+    var denom = elapsedDays();
+    var avgEl = el('sAvg');
+    if (avgEl) {
+      var v = denom ? slots / denom : 0;
+      avgEl.innerHTML = v.toFixed(1) + '<span class="mu">段/天</span>';
+    }
+
+    renderHeatmap();
+    renderBars();
+    renderTrend();
+  }
+
+  /* ---- 年度热力图：一列一周，7 行是星期 ---------- */
+  function renderHeatmap() {
+    var wrap = el('heatmap');
+    if (!wrap) return;
+
+    var a = days();
+    var note = el('hmNote');
+
+    if (!a.length) {
+      wrap.innerHTML = '';
+      if (note) note.textContent = '还没有设置周期';
+      return;
+    }
+
+    if (note) {
+      note.textContent = a[0].d.replace(/-/g, '.') + ' – ' +
+        a[a.length - 1].d.replace(/-/g, '.') + ' · 共 ' + a.length + ' 天';
+    }
+
+    var html = '';
+    /* 首列上方补位：周期第一天是周几，就让每列对齐到真正的星期 */
+    var lead = parseYmd(a[0].d).getDay();
+    for (var q = 0; q < lead; q++) {
+      html += '<span class="hm-cell" style="visibility:hidden"></span>';
+    }
+
+    var tKey = todayKey();
+    a.forEach(function (day) {
+      var pr = dayProgress(day.d);
+      var lv = 0;
+      if (pr && pr.ratio > 0) {
+        lv = pr.ratio >= 0.999 ? 4 : (pr.ratio >= 0.67 ? 3 : (pr.ratio >= 0.34 ? 2 : 1));
+      }
+      var cls = 'hm-cell';
+      if (lv) cls += ' l' + lv;
+      else if (day.rest) cls += ' is-rest';
+      if (day.d === tKey) cls += ' is-today';
+      if (day.d === state.sel) cls += ' is-sel';
+
+      var tip = day.d + ' ' + day.wd + ' · ' + (day.rest ? '休息日' : '学习日') +
+        (pr && pr.total ? ' · 完成 ' + pr.done + '/' + pr.total : '');
+      html += '<button type="button" class="' + cls + '" data-date="' + esc(day.d) + '"' +
+        ' title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  /* ---- 各线完成度：按模块里勾掉的阶段算 ---------- */
+  function renderBars() {
+    var wrap = el('trackBars');
+    if (!wrap) return;
+
+    var list = tracks();
+    if (!list.length) {
+      wrap.innerHTML = '<p class="bars-empty">还没有学习模块。</p>';
+      return;
+    }
+
+    var html = '';
+    list.forEach(function (t) {
+      var total = t.steps ? t.steps.length : 0;
+      var done = trackDone(t);
+      var pct = total ? Math.round(done / total * 100) : 0;
+      html += '<div class="bar-row">' +
+        '<span class="bar-name" title="' + esc(t.name) + '">' + esc(t.name) + '</span>' +
+        '<span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span>' +
+        '<span class="bar-pct">' + done + '/' + total + ' · ' + pct + '%</span>' +
+        '</div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  /* ---- 打卡趋势：按周 / 按月聚合累计打卡时段数 ---------- */
+  var trendGran = 'week';
+
+  function trendBucketKey(dstr) {
+    if (trendGran === 'month') return dstr.slice(0, 7);
+    var d = parseYmd(dstr);
+    if (!d) return dstr;
+    var back = (d.getDay() + 6) % 7;                 /* 以周一为一周起点 */
+    return ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
+  }
+
+  function renderTrend() {
+    var wrap = el('trend');
+    if (!wrap) return;
+
+    var a = days();
+    if (!a.length) {
+      wrap.innerHTML = '<p class="trend-empty">还没有设置周期。</p>';
+      return;
+    }
+
+    var byDate = checkCountByDate();
+    var map = {}, order = [];
+    a.forEach(function (day) {
+      var key = trendBucketKey(day.d);
+      if (!map[key]) { map[key] = { key: key, n: 0 }; order.push(key); }
+      map[key].n += (byDate[day.d] || 0);
+    });
+
+    var max = 1;
+    order.forEach(function (k) { if (map[k].n > max) max = map[k].n; });
+
+    var BAR = 96;                                    /* 柱子的最大像素高度 */
+    /* 按周时一整年有 53 列，标签全标会糊成一片 —— 抽到约 12 个 */
+    var step = trendGran === 'month' ? 1 : Math.max(1, Math.ceil(order.length / 12));
+
+    var html = '';
+    order.forEach(function (k, i) {
+      var b = map[k];
+      var h = b.n ? Math.max(Math.round(b.n / max * BAR), 3) : 2;
+
+      /* 跨年首周的周一可能落在周期之前（比如 2025-12-29），
+         那样标出来会被误读，改用周期第一天来标 */
+      var lblKey = (trendGran === 'week' && k < a[0].d) ? a[0].d : k;
+      var lbl = trendGran === 'month'
+        ? (Number(k.slice(5)) + '月')
+        : lblKey.slice(5).replace('-', '/');
+
+      var show = (i % step === 0);
+      html += '<div class="trend-col" title="' + esc(k + ' 起 · ' + b.n + ' 段') + '">' +
+        '<span class="trend-bar' + (b.n ? '' : ' is-zero') + '" style="height:' + h + 'px"></span>' +
+        '<span class="trend-k">' + (show ? esc(lbl) : '') + '</span>' +
+        '</div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  /* ---- 选中某天（热力图点格子 / 复盘墙点条目共用） ---------- */
+  function jumpToDay(d) {
+    if (indexOfDate(d) < 0) return;
+    state.sel = d;
+    save();
+    renderCal();
+    renderDay();
+    var panel = el('dayPanel');
+    if (panel && panel.scrollIntoView) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function initStats() {
+    var seg = el('trendSeg');
+    if (seg) {
+      seg.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-trend]') : null;
+        if (!btn) return;
+        var g = btn.getAttribute('data-trend');
+        if (g === trendGran) return;
+        trendGran = g;
+        Array.prototype.forEach.call(seg.querySelectorAll('.seg-btn'), function (b) {
+          var on = b === btn;
+          b.classList.toggle('is-on', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        renderTrend();
+      });
+    }
+
+    var hm = el('heatmap');
+    if (hm) {
+      hm.addEventListener('click', function (e) {
+        var cell = e.target && e.target.closest ? e.target.closest('[data-date]') : null;
+        if (!cell) return;
+        jumpToDay(cell.getAttribute('data-date'));
+      });
+    }
+  }
+
+  /* ==================================================================
+     Region 7 — 复盘墙
+     数据源 = 已有 state.reviews（done / stuck / next 三段）
+     ================================================================== */
+
+  var jQ = '';            /* 搜索词 */
+  var jStuckOnly = false; /* 只看有卡点 */
+
+  function journalAll() {
+    var out = [];
+    Object.keys(state.reviews).forEach(function (k) {
+      var rv = state.reviews[k];
+      if (!rv || typeof rv !== 'object') return;
+      var done = String(rv.done == null ? '' : rv.done).trim();
+      var stuck = String(rv.stuck == null ? '' : rv.stuck).trim();
+      var next = String(rv.next == null ? '' : rv.next).trim();
+      if (!done && !stuck && !next) return;
+      out.push({ d: k, done: done, stuck: stuck, next: next });
+    });
+    out.sort(function (a, b) { return a.d < b.d ? 1 : (a.d > b.d ? -1 : 0); });
+    return out;
+  }
+
+  function journalFiltered() {
+    var q = jQ.trim().toLowerCase();
+    return journalAll().filter(function (it) {
+      if (jStuckOnly && !it.stuck) return false;
+      if (!q) return true;
+      return (it.d + ' ' + it.done + ' ' + it.stuck + ' ' + it.next).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+
+  function weekKeyOf(dstr) {
+    var d = parseYmd(dstr);
+    if (!d) return dstr;
+    var back = (d.getDay() + 6) % 7;
+    return ymd(new Date(d.getFullYear(), d.getMonth(), d.getDate() - back));
+  }
+
+  function weekLabel(key) {
+    var t = new Date();
+    var back = (t.getDay() + 6) % 7;
+    var t0 = new Date(t.getFullYear(), t.getMonth(), t.getDate() - back);
+    var t1 = new Date(t.getFullYear(), t.getMonth(), t.getDate() - back - 7);
+    if (key === ymd(t0)) return '本周';
+    if (key === ymd(t1)) return '上周';
+    return Number(key.slice(5, 7)) + ' 月 ' + Number(key.slice(8)) + ' 日那周';
+  }
+
+  /* 搜索命中高亮。文本里含 & < > 时跳过（转义会改变长度，避免切错位置） */
+  function jHl(text) {
+    var s = esc(text);
+    var q = jQ.trim();
+    if (!q || /[&<>]/.test(text)) return s;
+    var re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig');
+    return s.replace(re, '<mark class="jr-hit">$1</mark>');
+  }
+
+  function journalItemHtml(it) {
+    var d = parseYmd(it.d);
+    var wd = d ? WEEK_CN[d.getDay()] : '';
+    var body = '';
+    if (it.done) body += '<span class="jr-line"><span class="jr-key">做完</span>' + jHl(it.done) + '</span>';
+    if (it.stuck) body += '<span class="jr-line is-stuck"><span class="jr-key">卡在</span>' + jHl(it.stuck) + '</span>';
+    if (it.next) body += '<span class="jr-line"><span class="jr-key">明天</span>' + jHl(it.next) + '</span>';
+    return '<button class="jr" type="button" data-jump="' + esc(it.d) + '">' +
+      '<span class="jr-date">' + esc(it.d.replace(/-/g, '.')) + ' ' + esc(wd) + '</span>' +
+      body +
+      '</button>';
+  }
+
+  function renderJournal() {
+    var wrap = el('journalList');
+    if (!wrap) return;
+
+    var all = journalAll();
+    var list = journalFiltered();
+    var filtering = !!jQ.trim() || jStuckOnly;
+
+    var hint = el('jHint');
+    if (hint) {
+      hint.textContent = all.length
+        ? ('共 ' + all.length + ' 条复盘' + (filtering ? '，筛出 ' + list.length + ' 条' : '') +
+           ' · 只存在你这台设备的浏览器里')
+        : '还没有复盘记录 —— 在「计划板」里点某一天，写下「做完什么 / 卡在哪 / 明天先做什么」，这里会自动汇总。';
+    }
+
+    if (!list.length) {
+      wrap.innerHTML = '<p class="journal-empty">' +
+        (all.length ? '没有匹配的复盘，换个关键词试试。' : '这里会按周汇总你写过的每一份复盘。') +
+        '</p>';
+      return;
+    }
+
+    var groups = [], byW = {};
+    list.forEach(function (it) {
+      var wk = weekKeyOf(it.d);
+      if (!byW[wk]) { byW[wk] = { key: wk, items: [] }; groups.push(byW[wk]); }
+      byW[wk].items.push(it);
+    });
+
+    var html = '';
+    groups.forEach(function (g, gi) {
+      var ds = g.items.map(function (x) { return x.d; }).sort();
+      var range = ds[0].replace(/-/g, '.') + ' – ' + ds[ds.length - 1].replace(/-/g, '.');
+      var open = gi === 0;                       /* 只有最近一周默认展开 */
+
+      html += '<div class="jw' + (open ? ' is-open' : '') + '" data-week="' + esc(g.key) + '">' +
+        '<button class="jw-head" type="button" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        '<span class="jw-caret" aria-hidden="true"></span>' +
+        '<span class="jw-title">' + esc(weekLabel(g.key)) + '</span>' +
+        '<span class="jw-meta">' + esc(range) + ' · ' + g.items.length + ' 条</span>' +
+        '</button>' +
+        '<div class="jw-body">';
+
+      g.items.forEach(function (it) { html += journalItemHtml(it); });
+      html += '</div></div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  function flashJournal(msg) {
+    var hint = el('jHint');
+    if (!hint) return;
+    if (!hint.getAttribute('data-orig')) hint.setAttribute('data-orig', '1');
+    hint.textContent = msg;
+    hint.classList.add('is-flash');
+    window.setTimeout(function () { renderJournal(); }, 2000);
+  }
+
+  function exportJournalMarkdown() {
+    var list = journalFiltered();
+    if (!list.length) { flashJournal('没有可导出的复盘'); return; }
+
+    var p = period();
+    var out = ['# 学习复盘 · ' + p.start + ' → ' + p.end, ''];
+
+    var groups = [], byW = {};
+    list.forEach(function (it) {
+      var wk = weekKeyOf(it.d);
+      if (!byW[wk]) { byW[wk] = { key: wk, items: [] }; groups.push(byW[wk]); }
+      byW[wk].items.push(it);
+    });
+
+    groups.forEach(function (g) {
+      var ds = g.items.map(function (x) { return x.d; }).sort();
+      out.push('## ' + ds[0] + ' ~ ' + ds[ds.length - 1]);
+      out.push('');
+      g.items.forEach(function (it) {
+        var d = parseYmd(it.d);
+        out.push('### ' + it.d + (d ? ' ' + WEEK_CN[d.getDay()] : ''));
+        out.push('');
+        if (it.done) out.push('- **完成了什么**：' + it.done);
+        if (it.stuck) out.push('- **卡在哪里**：' + it.stuck);
+        if (it.next) out.push('- **明天先做什么**：' + it.next);
+        out.push('');
+      });
+    });
+
+    var blob = new Blob([out.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    saveBlob(blob, 'study-journal-' + stampNow() + '.md');
+    flashJournal('已导出 ' + list.length + ' 条复盘为 Markdown');
+  }
+
+  function initJournal() {
+    var search = el('jSearch');
+    if (search) {
+      search.addEventListener('input', function () {
+        jQ = search.value || '';
+        renderJournal();
+      });
+    }
+
+    var stuck = el('jStuck');
+    if (stuck) {
+      stuck.addEventListener('click', function () {
+        jStuckOnly = !jStuckOnly;
+        stuck.setAttribute('aria-pressed', jStuckOnly ? 'true' : 'false');
+        renderJournal();
+      });
+    }
+
+    var exp = el('jExport');
+    if (exp) exp.addEventListener('click', exportJournalMarkdown);
+
+    var list = el('journalList');
+    if (list) {
+      list.addEventListener('click', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) return;
+
+        var head = t.closest('.jw-head');
+        if (head) {
+          var box = head.parentNode;
+          var on = box.classList.toggle('is-open');
+          head.setAttribute('aria-expanded', on ? 'true' : 'false');
+          return;
+        }
+
+        var item = t.closest('[data-jump]');
+        if (item) jumpToDay(item.getAttribute('data-jump'));
+      });
+    }
+  }
+
+  /* ----------------------------------------------------------------
      Boot
      ---------------------------------------------------------------- */
   function init() {
@@ -3218,7 +3839,7 @@
     }
 
     initCounters();
-    initVideo();
+    initDotMatrix();
     initMenu();
     initReveals();
     initReview();
@@ -3226,6 +3847,9 @@
     renderAll();
     initTrackTools();
     initRepo();
+    initStats();
+    initJournal();
+    initBackupTip();
 
     /* 移动端 / 键盘：周期面板与预览层都能用 Esc 关掉 */
     document.addEventListener('keydown', function (e) {

@@ -1,9 +1,12 @@
 /* ==================================================================
-   Intelligence Designed To Evolve
-   Region 1 — landing (spec-exact)   |   Region 2 — 13-day plan board
+   学习计划板 · study-website
+   Region 1 — landing（单视口，本地 Canvas 点阵背景）
+   Region 2 — 可自定义计划板   |   Region 3-5 — 编辑 / 周期 / 仓库
+   Region 6 — 数据中心   |   Region 7 — 复盘墙
+   全部资源本地化：不引入任何外部字体、图标或视频，可完全离线运行。
    ================================================================== */
 
-/* ---------- Local fallback display face ---------- */
+/* ---------- Local display face（点阵显示字体，唯一字体文件） ---------- */
 @font-face {
   font-family: "Geist Pixel Circle";
   src: url("fonts/GeistPixel-Circle.woff2") format("woff2");
@@ -12,7 +15,7 @@
   font-display: swap;
 }
 
-/* ---------- Variables (spec) ---------- */
+/* ---------- Variables ---------- */
 :root {
   --bg: #000000;
   --text: #ffffff;
@@ -24,8 +27,10 @@
   --trust-bg: #28282a;
   --trust-border: rgba(255, 255, 255, 0.4);
   --trust-text: #c4c2c3;
-  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
-  --font-display: "BubbledotICG-FinePos", "Geist Pixel Circle", monospace;
+  /* 正文用系统字体栈（零请求）；标题用本地点阵字体 */
+  --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+  --font-display: "Geist Pixel Circle", "Segoe UI", monospace;
 }
 
 /* ---------- Reset / base ---------- */
@@ -73,6 +78,19 @@ button {
   color: #000;
 }
 
+/* 只给读屏用的文本（用于内联 SVG 图标的语义） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ==================================================================
    REGION 1 — LANDING
    ================================================================== */
@@ -86,7 +104,7 @@ button {
      这样 .page 不必创建 stacking context，header/burger 才能压到 overlay 之上。 */
 }
 
-/* ---- background video ---- */
+/* ---- background: 本地 Canvas 点阵（无外部视频） ---- */
 .bg {
   position: absolute;
   inset: 0;
@@ -95,28 +113,27 @@ button {
   z-index: -1;
 }
 
-.bg-video {
+.bg-canvas {
   position: absolute;
   inset: 0;
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   pointer-events: none;
   z-index: 0;
 }
 
-/* 极淡暗角：视频画面偏亮时（本片顶部是高亮点阵），白色标题会读不出来。
-   只压中部一圈，四周保留视频的原始观感。 */
+/* 中部一圈轻暗角：白字标题压在点阵上时保证可读，边缘让点阵透出来 */
 .bg::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 1;
   background: radial-gradient(
-    125% 75% at 50% 44%,
-    rgba(0, 0, 0, 0.4) 0%,
-    rgba(0, 0, 0, 0.3) 46%,
-    rgba(0, 0, 0, 0.08) 78%,
+    122% 74% at 50% 44%,
+    rgba(0, 0, 0, 0.52) 0%,
+    rgba(0, 0, 0, 0.32) 48%,
+    rgba(0, 0, 0, 0.06) 80%,
     rgba(0, 0, 0, 0) 100%
   );
   pointer-events: none;
@@ -374,11 +391,11 @@ button {
   background: #fff;
 }
 
-.avatar i {
+.avatar .ti {
   position: relative;
   z-index: 1;
-  font-size: calc(var(--trust-size) * 0.34);
-  line-height: 1;
+  width: calc(var(--trust-size) * 0.42);
+  height: calc(var(--trust-size) * 0.42);
   color: #111;
 }
 
@@ -640,6 +657,12 @@ button {
 }
 .sheet-link:nth-child(4) {
   animation-delay: 0.18s;
+}
+.sheet-link:nth-child(5) {
+  animation-delay: 0.22s;
+}
+.sheet-link:nth-child(6) {
+  animation-delay: 0.26s;
 }
 
 .sheet-link.is-active {
@@ -3737,6 +3760,472 @@ select.mf-input option {
 
   .lb-img {
     max-height: 62vh;
+  }
+}
+
+/* ==================================================================
+   Region 6 — 数据中心（#stats）
+   数据全部来自已有 state，不新增任何存储字段。
+   ================================================================== */
+
+/* ---- 备份提醒（Region 2 的补充，样式就近放这里） ---- */
+.backup-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: rgba(240, 179, 126, 0.1);
+  border: 1px solid rgba(240, 179, 126, 0.3);
+  font-size: clamp(12.5px, 1.4vw, 13.5px);
+  line-height: 1.55;
+  color: #f2d6b8;
+}
+
+.backup-tip[hidden] {
+  display: none;
+}
+
+.bt-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(240, 179, 126, 0.24);
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0b37e;
+}
+
+.bt-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bt-close {
+  flex: 0 0 auto;
+  padding: 0 3px;
+  font-size: 19px;
+  line-height: 1;
+  color: rgba(242, 214, 184, 0.72);
+  transition: color 0.2s ease;
+}
+
+.bt-close:hover {
+  color: #fff;
+}
+
+.insight,
+.journal {
+  margin-top: clamp(40px, 7vh, 68px);
+}
+
+/* 关键数字卡直接复用 .board / .metric，去掉重复的顶间距 */
+#statCards {
+  margin-top: 0;
+}
+
+.stat-block {
+  margin-top: clamp(16px, 2.2vw, 22px);
+  padding: clamp(15px, 2.1vw, 21px);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sb-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sb-title {
+  margin: 0;
+  font-size: clamp(14px, 1.6vw, 16px);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+
+.sb-note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sb-note:first-of-type {
+  margin-left: auto;
+}
+
+/* ---- 年度热力图 ---- */
+.hm-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+
+.hm {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 11px;
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+  width: max-content;
+}
+
+.hm-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2.5px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.hm-cell.is-rest {
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+.hm-cell.l1 { background: rgba(126, 224, 174, 0.26); }
+.hm-cell.l2 { background: rgba(126, 224, 174, 0.48); }
+.hm-cell.l3 { background: rgba(126, 224, 174, 0.7); }
+.hm-cell.l4 { background: #7ee0ae; }
+
+.hm-cell.is-today {
+  box-shadow: 0 0 0 1.5px #fff;
+}
+
+.hm-cell.is-sel {
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+}
+
+.hm-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.hm-legend .hm-lv {
+  width: 11px;
+  height: 11px;
+  border-radius: 2.5px;
+  display: inline-block;
+}
+
+.hm-lv.l0 { background: rgba(255, 255, 255, 0.06); }
+.hm-lv.l1 { background: rgba(126, 224, 174, 0.26); }
+.hm-lv.l2 { background: rgba(126, 224, 174, 0.48); }
+.hm-lv.l3 { background: rgba(126, 224, 174, 0.7); }
+.hm-lv.l4 { background: #7ee0ae; }
+
+.hm-cap {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 2px;
+}
+
+/* ---- 各线完成度 ---- */
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 128px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.bar-name {
+  font-size: 13px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: #7ee0ae;
+  transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bar-pct {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+  text-align: right;
+}
+
+.bars-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---- 趋势 ---- */
+.sb-seg {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.seg-btn {
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  transition: background 0.22s ease, color 0.22s ease;
+}
+
+.seg-btn.is-on {
+  background: #fff;
+  color: #000;
+}
+
+/* 趋势图自己横向滚动（一整年按周聚合会有 53 列，窄屏必须能滚）
+   左右留一点内边距，免得首尾的日期标签被容器边缘裁掉 */
+.trend {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 138px;
+  padding: 0 9px 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trend-col {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+
+.trend-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(to top, rgba(126, 224, 174, 0.42), #7ee0ae);
+}
+
+.trend-bar.is-zero {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.trend-k {
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.trend-empty {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ==================================================================
+   Region 7 — 复盘墙（#journal）
+   数据源 = 已有 state.reviews（done / stuck / next）
+   ================================================================== */
+
+.journal-tools {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tt-input {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.tt-input:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tt-input::placeholder {
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.tt-btn[aria-pressed='true'] {
+  background: rgba(126, 224, 174, 0.16);
+  border-color: rgba(126, 224, 174, 0.45);
+  color: #fff;
+}
+
+.journal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.jw {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.028);
+  overflow: hidden;
+}
+
+.jw-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 13px 15px;
+  text-align: left;
+  transition: background 0.2s ease;
+}
+
+.jw-head:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.jw-caret {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid rgba(255, 255, 255, 0.55);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.jw.is-open .jw-caret {
+  transform: rotate(90deg);
+}
+
+.jw-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.jw-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.jw-body {
+  display: none;
+  padding: 0 11px 11px;
+}
+
+.jw.is-open .jw-body {
+  display: block;
+}
+
+.jr {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.jr:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.jr-date {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #7ee0ae;
+}
+
+.jr-line {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.jr-key {
+  color: var(--muted);
+  margin-right: 5px;
+}
+
+.jr-line.is-stuck .jr-key {
+  color: #f0b37e;
+}
+
+.jr-hit {
+  background: rgba(126, 224, 174, 0.2);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.journal-empty {
+  padding: 30px 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+#jHint.is-flash {
+  color: #7ee0ae;
+}
+
+@media (max-width: 720px) {
+  .bar-row {
+    grid-template-columns: minmax(62px, 88px) minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+
+  .journal-tools .tt-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .tt-input {
+    flex: 1 1 100%;
   }
 }
 

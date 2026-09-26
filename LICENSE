@@ -30,11 +30,19 @@ SOFTWARE.
 | 资源 | 位置 | 授权 |
 |---|---|---|
 | Geist Pixel Circle 字体 | `fonts/GeistPixel-Circle.woff2` | SIL Open Font License 1.1 |
-| Inter 字体 | 运行时从 Google Fonts 加载（未随仓库分发） | SIL Open Font License 1.1 |
-| Font Awesome 6.5.2 图标 | 运行时从 cdnjs 加载（未随仓库分发） | CC BY 4.0 / SIL OFL 1.1 / MIT |
-| BubbledotICG-FinePos 字体 | 运行时从 onlinewebfonts 加载（未随仓库分发） | 见该站说明，链路不如 Google Fonts 清晰 |
-| 首页背景视频 | 运行时从第三方 CloudFront 加载（未随仓库分发） | 非本项目所有，仅作占位演示 |
+| 站点图标（ico / png） | `assets/icon/` | 本项目自制，随本仓库以 MIT 许可分发 |
 | 40 张机械制图练习图纸 | `assets/dxf/` | 依据中国国家标准（GB/T）绘制，随本仓库以 MIT 许可分发 |
+
+**运行时不再加载任何第三方资源。** 自 v0.2.0 起，以下四项已全部移除：
+
+| 曾用资源 | 原加载方式 | 现改为 |
+|---|---|---|
+| Inter 字体（SIL OFL 1.1） | Google Fonts CDN | 系统字体栈 |
+| Font Awesome 6.5.2 图标（CC BY 4.0 / SIL OFL 1.1 / MIT） | cdnjs CDN | 内联 SVG（手写） |
+| BubbledotICG-FinePos 字体 | onlinewebfonts CDN | 本地 `GeistPixel-Circle.woff2` |
+| 首页背景视频 | 第三方 CloudFront | 本地 Canvas 点阵动效 |
+
+移除后页面不发起任何外部请求，可完全离线运行。
 
 > 图纸依据的国标：GB/T 14689（图幅）、GB/T 4457.4（图线）、GB/T 4458.4（尺寸注法）、
 > GB/T 10609.1（标题栏）、GB/T 14691（字体）、**第一角投影法**。
