@@ -8,7 +8,10 @@
 **在线试玩 → https://3280053419w-cloud.github.io/study-website/**
 （数据仍存在你自己的浏览器里，站点不收集任何东西。想要真正离线，往下看「快速开始」。）
 
-![计划板](assets/readme/board.png)
+> **当前版本 v3.0.0**。发布版是**空白模板**：首访不带任何演示数据，学习日/休息日作息、学习模块、图纸仓库全空，由用户自己自定义；
+> 仓库源码保留 `EMPTY_TEMPLATE = false` 的本地演示态（4 条学习线 + 40 张图纸），发布时切到 `true`。
+
+![计划板](assets/readme/board.jpg)
 
 ---
 
@@ -67,7 +70,7 @@
 
 ### 6. 数据中心 —— 让坚持看得见
 
-![数据中心](assets/readme/stats.png)
+![数据中心](assets/readme/stats.jpg)
 
 所有数字都从你已有的打卡记录推导，**不额外存任何东西**：
 
@@ -79,7 +82,7 @@
 
 ### 7. 复盘墙 —— 把每天那三句话攒起来
 
-![复盘墙](assets/readme/journal.png)
+![复盘墙](assets/readme/journal.jpg)
 
 计划板里每天写的「做完什么 / 卡在哪 / 明天先做什么」，在这里自动汇总成一份可累积、可带走的记录：
 
@@ -91,7 +94,7 @@
 
 ### 8. 内置资源仓库
 
-![资源仓库](assets/readme/gallery.png)
+![资源仓库](assets/readme/gallery.jpg)
 
 **A. CAD 练习图纸仓库（随仓库分发）**
 
@@ -180,7 +183,7 @@ GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以
 
 **页面不发起任何外部请求。** 不加载 CDN 字体、不加载图标字体、不加载视频 ——
 正文走系统字体栈，标题用仓库自带的 `fonts/GeistPixel-Circle.woff2`，图标是内联 SVG，
-首屏背景是本地 Canvas 绘制的点阵动效。把整个文件夹拷进 U 盘、拔掉网线打开，功能与视觉一模一样。
+首屏背景是本地 WebGL 着色器实时算出来的流体场与流光带。把整个文件夹拷进 U 盘、拔掉网线打开，功能与视觉一模一样。
 
 **备份提醒**：数据只在本机浏览器里，清缓存就没了。所以当你超过 14 天没导出、且已经有打卡记录时，
 计划板顶部会出现一条**可关闭**的温和提示 —— 不弹窗、不打断；关掉之后安静 30 天。
@@ -224,8 +227,15 @@ GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以
 - **零依赖、零构建**：没有 npm 包、没有打包器、没有框架。三个文件就是全部。
 - **零外部请求**：字体、图标、背景全部本地化 —— 正文系统字体栈、标题本地 woff2、图标内联 SVG、
   首屏背景本地 Canvas。断网可用，不是口号。
-- **首屏点阵是 Canvas 画的**：一片缓慢呼吸的点阵，从中心向外走一圈环形波。不加载视频、不加载图片，
-  标签页切到后台或首屏滚出视野就暂停；`prefers-reduced-motion: reduce` 时只画一帧静态点阵。
+- **首屏背景是 WebGL 着色器实时算的**：一片缓慢流动的流体场 + 一道斜掠而过的流光带，零视频零图片。
+  画布按视口 0.6 倍降分辨率渲染、帧率上限 30fps；标签页切到后台或首屏滚出视野就暂停；
+  `prefers-reduced-motion: reduce` 时只画一帧静态画面（光带静止）。
+- **首屏主视觉是一枚 CSS 3D 棱镜**：六个玻璃面，每面嵌一枚内联 SVG（日历点阵 / 同心轨道 / 刻度 / 折线）；
+  三轴不同周期的慢速旋转（46s / 33s），鼠标只带 ±2.4° 视差，减动效时静止。走合成层，不占渲染预算。
+- **所有模块卡带边缘辉光**：指针靠近卡片边缘时，外圈亮起一圈紫光、1px 网格渐变描边随之点亮，
+  方向跟着指针（贴哪条边就亮哪一侧）。零依赖手写移植、**不注入任何 DOM** —— 辉光全由卡片的两个
+  伪元素承担，所以 40 张图纸卡也不会让页面变重；触屏与 `prefers-reduced-motion` 下不绑定指针，
+  辉光从不出现。整站只有**一个**委托 `pointermove` 监听 + rAF 节流。
 - **零依赖 ZIP**：手写 stored（不压缩）ZIP —— CRC32 查表、local header、central directory、EOCD，
   文件名带 UTF-8 标志位 `0x0800`。所以「打包下载 40 张图」不需要引任何库。
 - **事件委托**：容器上装一次监听，`innerHTML` 整体替换也不会让交互失效。
@@ -245,7 +255,7 @@ GitHub Pages、Cloudflare Pages、Netlify、Vercel、任意对象存储都可以
 | 正文 | 系统字体栈（`system-ui` / `Segoe UI` / 苹方 / 微软雅黑…），不发请求 |
 | 标题（点阵显示字体） | 仓库自带的 `fonts/GeistPixel-Circle.woff2`，SIL OFL |
 | 图标 | 内联 SVG（三个，手写在 `index.html` 里） |
-| 首屏背景 | 本地 Canvas 绘制的点阵动效 |
+| 首屏背景 | 本地 WebGL 着色器实时绘制，无外部资源 |
 
 v0.1.x 曾引用 Google Fonts（Inter）、Font Awesome CDN、Bubbledot ICG 在线字体与一段 CloudFront 背景视频；
 **v0.2.0 已全部移除**。历史清单与各自授权见 [`LICENSE`](./LICENSE) 附表。

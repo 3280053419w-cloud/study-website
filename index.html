@@ -4,9 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="color-scheme" content="dark" />
-<meta name="theme-color" content="#000000" />
+<meta name="theme-color" content="#05010a" />
 <title>学习计划板 · 把学习排成你自己的样子</title>
 <meta name="description" content="可自定义学习计划板：周期、作息、学习模块全自定义。纯前端、零依赖、本地存储，开源免费。" />
+<meta name="app-version" content="3.0.0" />
 <link rel="icon" href="assets/icon/icon-256.png" type="image/png" />
 
 <!-- 全部样式与字体都在本地，页面不发出任何外部请求，可完全离线运行。
@@ -18,14 +19,20 @@
 <body>
 
 <!-- ==================================================================
-     REGION 1 — LANDING (single viewport, full-bleed local canvas)
+     v0.4 全局 CRT 背景（纯本地 WebGL，移植自 React Bits 的 CRTWarp 着色器）
+     图层顺序：.crt-bg(z-2 画面) → .crt-veil(z-1 暗纱，保文字对比度) → 正文
+     ================================================================== -->
+<canvas class="crt-bg" id="crtCanvas" aria-hidden="true"></canvas>
+<div class="crt-veil" id="crtVeil" aria-hidden="true"></div>
+
+<!-- ==================================================================
+     REGION 1 — LANDING (single viewport, full-bleed)
      ================================================================== -->
 <div class="landing" id="home">
 
-  <!-- 本地 Canvas 点阵动效（原来这里是 CloudFront 视频，已去掉）
-       prefers-reduced-motion: reduce 时只画一帧静态点阵 -->
   <div class="bg" aria-hidden="true">
-    <canvas class="bg-canvas" id="bgCanvas"></canvas>
+    <!-- 超大水印：沉在全部内容之下，被底边裁掉一部分 -->
+    <div class="hero-mark" aria-hidden="true">STUDY</div>
   </div>
 
   <div class="page">
@@ -45,6 +52,7 @@
         <a class="nav-link" href="#journal">复盘墙</a>
       </nav>
 
+      <span class="hero-date" id="heroDate" aria-hidden="true"></span>
       <a class="signin" href="#board">进入计划板</a>
 
       <button class="burger" id="burger" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="mobileMenu">
@@ -52,85 +60,201 @@
       </button>
     </header>
 
-    <!-- ---------- Hero ---------- -->
+    <!-- ---------- Hero（v0.4：CRT 暗场 · 左文右卡 · 悬浮透光棱镜） ---------- -->
     <main class="hero">
 
-      <div class="trust anim" style="--d: .05s">
-        <div class="trust-avatars">
-          <span class="avatar a1">
-            <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="6.5" cy="5" r="2.5" />
-              <circle cx="6.5" cy="19" r="2.5" />
-              <circle cx="17.5" cy="9" r="2.5" />
-              <path d="M6.5 7.5v9" />
-              <path d="M17.5 11.5c0 3-2.2 4.5-5 4.5H9" />
-            </svg>
-            <span class="sr-only">开源</span>
-          </span>
-          <span class="avatar a2">
-            <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8" />
-              <rect x="2.5" y="7.5" width="19" height="4.5" rx="1" />
-              <path d="M12 7.5V21" />
-              <path d="M12 7.5S10.6 3 8.2 3a2.4 2.4 0 0 0 0 4.8H12zM12 7.5S13.4 3 15.8 3a2.4 2.4 0 0 1 0 4.8H12z" />
-            </svg>
-            <span class="sr-only">免费</span>
-          </span>
-          <span class="avatar a3">
-            <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 2.6 4.6 5.6v6.1c0 5 3.1 8.6 7.4 9.7 4.3-1.1 7.4-4.7 7.4-9.7V5.6z" />
-              <path d="m9.2 12.1 2.1 2.1 3.9-4.1" />
-            </svg>
-            <span class="sr-only">本地存储</span>
-          </span>
+      <!-- 主视觉：悬浮透明棱镜。纯 CSS 3D + 内联 SVG，零依赖、不发请求。
+           置于文本之下（z-index 低于两列内容）且 pointer-events:none ——
+           既不会盖住中文笔画，也绝不挡 CTA 的点击。 -->
+      <div class="cube-layer" id="cubeLayer" aria-hidden="true">
+        <span class="cube-halo"></span>
+        <span class="cube-halo cube-halo-warm"></span>
+        <span class="cube-orbit cube-orbit-a"></span>
+        <span class="cube-orbit cube-orbit-b"></span>
+        <span class="cube-dust"></span>
+
+        <div class="cube-stage" id="cubeStage">
+          <div class="cube-sway">
+            <div class="cube-float">
+              <div class="cube-spin-y">
+                <div class="cube-spin-x">
+                  <div class="cube">
+                    <div class="cube-face f-front">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <g class="cl-dots">
+                          <circle cx="22" cy="30" r="1.6" /><circle cx="34" cy="30" r="1.6" />
+                          <circle cx="46" cy="30" r="1.6" /><circle cx="58" cy="30" r="1.6" />
+                          <circle cx="70" cy="30" r="1.6" /><circle cx="22" cy="42" r="1.6" />
+                          <circle cx="34" cy="42" r="1.6" /><circle cx="46" cy="42" r="1.6" />
+                          <circle cx="58" cy="42" r="1.6" /><circle cx="70" cy="42" r="1.6" />
+                          <circle cx="22" cy="54" r="1.6" /><circle cx="34" cy="54" r="1.6" />
+                          <circle cx="46" cy="54" r="1.6" /><circle cx="58" cy="54" r="1.6" />
+                          <circle cx="70" cy="54" r="1.6" /><circle cx="22" cy="66" r="1.6" />
+                          <circle cx="34" cy="66" r="1.6" /><circle cx="46" cy="66" r="1.6" />
+                          <circle cx="58" cy="66" r="1.6" /><circle cx="70" cy="66" r="1.6" />
+                        </g>
+                        <g class="cl-lit">
+                          <circle cx="34" cy="30" r="2.6" /><circle cx="58" cy="42" r="2.6" />
+                          <circle cx="46" cy="54" r="2.6" />
+                        </g>
+                        <rect x="14" y="22" width="64" height="52" rx="4" class="cl-frame" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-back">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <ellipse cx="50" cy="50" rx="38" ry="38" class="cl-orbit" />
+                        <ellipse cx="50" cy="50" rx="24" ry="24" class="cl-orbit" />
+                        <ellipse cx="50" cy="50" rx="10" ry="10" class="cl-orbit" />
+                        <circle cx="50" cy="12" r="2.4" class="cl-lit" />
+                        <circle cx="74" cy="50" r="1.8" class="cl-lit" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-left">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M30 16v68" class="cl-frame" />
+                        <path d="M30 22h22M30 34h14M30 46h26M30 58h18M30 70h22M30 82h12" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-right">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M16 66 30 52 42 58 54 38 66 44 82 26" />
+                        <g class="cl-lit">
+                          <circle cx="30" cy="52" r="1.8" /><circle cx="54" cy="38" r="1.8" />
+                          <circle cx="82" cy="26" r="1.8" />
+                        </g>
+                        <path d="M16 82h66" class="cl-frame" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-top">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <rect x="20" y="20" width="60" height="60" rx="3" />
+                        <rect x="32" y="32" width="36" height="36" rx="2" class="cl-frame" />
+                        <rect x="44" y="44" width="12" height="12" rx="1" class="cl-lit" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-bottom">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M50 14v72M14 50h72" class="cl-frame" />
+                        <circle cx="50" cy="50" r="20" class="cl-orbit" />
+                        <circle cx="50" cy="50" r="31" class="cl-orbit" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <span class="trust-pill">开源 · 免费 · 本地存储</span>
       </div>
 
-      <h1 class="headline anim">
-        <span class="line l1">把学习</span>
-        <span class="line l2">排成你自己的样子</span>
-      </h1>
+      <div class="hero-left">
+        <p class="hero-eyebrow anim" style="--d: .05s">STUDY PLANNER · 零依赖 · 全本地</p>
 
-      <p class="subhead anim" style="--d: .28s">
-        周期、作息、学习模块全自定义 —— 纯前端、零依赖，数据只存在你自己的浏览器里。
-      </p>
+        <h1 class="headline anim">
+          <span class="line l1">把学习</span>
+          <span class="line l2">排成<span class="dim">你自己的</span>样子</span>
+        </h1>
 
-      <a class="cta anim" href="#plan" style="--d: .4s">开始排计划</a>
+        <div class="trust anim" style="--d: .22s">
+          <div class="trust-avatars">
+            <span class="avatar a1">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6.5" cy="5" r="2.5" />
+                <circle cx="6.5" cy="19" r="2.5" />
+                <circle cx="17.5" cy="9" r="2.5" />
+                <path d="M6.5 7.5v9" />
+                <path d="M17.5 11.5c0 3-2.2 4.5-5 4.5H9" />
+              </svg>
+              <span class="sr-only">开源</span>
+            </span>
+            <span class="avatar a2">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8" />
+                <rect x="2.5" y="7.5" width="19" height="4.5" rx="1" />
+                <path d="M12 7.5V21" />
+                <path d="M12 7.5S10.6 3 8.2 3a2.4 2.4 0 0 0 0 4.8H12zM12 7.5S13.4 3 15.8 3a2.4 2.4 0 0 1 0 4.8H12z" />
+              </svg>
+              <span class="sr-only">免费</span>
+            </span>
+            <span class="avatar a3">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.6 4.6 5.6v6.1c0 5 3.1 8.6 7.4 9.7 4.3-1.1 7.4-4.7 7.4-9.7V5.6z" />
+                <path d="m9.2 12.1 2.1 2.1 3.9-4.1" />
+              </svg>
+              <span class="sr-only">本地存储</span>
+            </span>
+          </div>
+          <span class="trust-pill">
+            <span class="trust-star" aria-hidden="true">★</span><span id="heroStreakYes" hidden>连续打卡 <b id="heroStreak">0</b> 天</span><span id="heroStreakNo">从今天开始连续打卡</span>
+          </span>
+        </div>
+
+        <p class="subhead anim" style="--d: .28s">
+          一个可以自己排的学习计划板 —— 定周期、排时段、加模块，然后每天打勾。数据只存在你自己的浏览器里。
+        </p>
+
+        <ol class="hero-steps anim" style="--d: .34s" aria-label="使用路径：四步">
+          <li><b>1</b>设置周期</li>
+          <li><b>2</b>安排时段</li>
+          <li><b>3</b>添加模块</li>
+          <li><b>4</b>每日打卡</li>
+        </ol>
+
+        <div class="cta-row">
+          <a class="cta anim" href="#plan" style="--d: .4s"><span>开始排计划</span><span class="cta-orb" aria-hidden="true"><svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13" /><path d="m12 5 7 7-7 7" /></svg></span></a>
+          <a class="cta-ghost anim" href="#tracks" style="--d: .46s">看看学习模块</a>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <aside class="hero-card anim" style="--d: .3s" aria-live="polite">
+          <div class="hc-head">
+            <span class="hc-icon" aria-hidden="true">S</span>
+            <p class="hc-label">今日概览<span class="hc-date" id="heroCardDate"></span></p>
+          </div>
+          <p class="hc-day" id="heroDay">—</p>
+          <p class="hc-slots" id="heroSlots">—</p>
+          <div class="hc-bar" aria-hidden="true"><i id="heroBarFill"></i></div>
+          <a class="hc-cta" id="heroCardCta" href="#plan">继续今天 →</a>
+        </aside>
+
+        <footer class="stats">
+          <article class="stat anim" style="--d: .5s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="365" data-decimals="0">0</span><span class="suffix">天</span></div>
+            <div class="stat-label">周期可调</div>
+          </article>
+          <article class="stat anim" style="--d: .58s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="40" data-decimals="0">0</span><span class="suffix">张</span></div>
+            <div class="stat-label">练习图纸</div>
+          </article>
+          <article class="stat anim" style="--d: .66s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M13 6l-2 12"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="0" data-decimals="0">0</span><span class="suffix">个</span></div>
+            <div class="stat-label">纯前端 · 零依赖</div>
+          </article>
+          <article class="stat anim" style="--d: .74s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="100" data-decimals="0">0</span><span class="suffix">%</span></div>
+            <div class="stat-label">本地存储</div>
+          </article>
+        </footer>
+      </div>
     </main>
 
-    <!-- ---------- Stats footer ---------- -->
-    <footer class="stats">
-      <article class="stat anim" style="--d: .5s">
-        <div class="stat-icon">&lt;</div>
-        <div class="stat-value"><span class="num" data-target="365" data-decimals="0">0</span><span class="suffix">天</span></div>
-        <div class="stat-label">周期可调</div>
-      </article>
-      <article class="stat anim" style="--d: .58s">
-        <div class="stat-icon">%</div>
-        <div class="stat-value"><span class="num" data-target="40" data-decimals="0">0</span><span class="suffix">张</span></div>
-        <div class="stat-label">练习图纸</div>
-      </article>
-      <article class="stat anim" style="--d: .66s">
-        <div class="stat-icon">*</div>
-        <div class="stat-value"><span class="num" data-target="0" data-decimals="0">0</span><span class="suffix">依赖</span></div>
-        <div class="stat-label">纯前端</div>
-      </article>
-      <article class="stat anim" style="--d: .74s">
-        <div class="stat-icon">#</div>
-        <div class="stat-value"><span class="num" data-target="100" data-decimals="0">0</span><span class="suffix">%</span></div>
-        <div class="stat-label">本地存储</div>
-      </article>
+    <!-- ---------- Hero bottom bar ---------- -->
+    <footer class="hero-bar anim" style="--d: .8s">
+      <span class="hb-tag">开源 · 免费 · 本地存储</span>
+      <span class="hb-mid"><span class="hb-dot" aria-hidden="true">●</span><span class="hb-text" id="hbPeriod"></span></span>
+      <a class="scroll-cue" href="#plan">
+        <span class="cue-text" id="cueText">学习计划</span>
+        <span class="cue-arrow" aria-hidden="true"></span>
+      </a>
     </footer>
-
-    <!-- ---------- Scroll cue into the plan board ---------- -->
-    <a class="scroll-cue" href="#plan">
-      <span class="cue-text" id="cueText">学习计划</span>
-      <span class="cue-arrow" aria-hidden="true"></span>
-    </a>
   </div>
 </div>
 
@@ -153,11 +277,16 @@
 <section class="plan" id="plan">
   <div class="plan-wrap">
 
+    <div class="sec-giant" aria-hidden="true"><span class="gi">ORCHESTRATE</span></div>
+
     <header class="plan-head reveal">
       <p class="eyebrow">Plan Board · 学习计划板</p>
       <h2 class="plan-title"><span class="line" id="planTitle">Plan</span></h2>
       <p class="plan-sub" id="planSub"></p>
       <div class="today-bar" id="todayBar"></div>
+
+      <!-- v0.7 今日待办：今天要做的时段 + 一键勾选，放最顶上，打卡不用往下滚 -->
+      <div class="today-todo" id="todayTodo"></div>
 
       <!-- 备份提醒：隔太久没导出 JSON 时出现，可关闭 -->
       <div class="backup-tip" id="backupTip" hidden>
@@ -176,26 +305,61 @@
     <!-- ---------- Progress board ---------- -->
     <div class="board" id="board">
       <article class="metric reveal">
-        <div class="metric-icon">&lt;</div>
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></div>
         <div class="metric-value" id="mDay">—</div>
         <div class="metric-label">周期进度</div>
       </article>
       <article class="metric reveal">
-        <div class="metric-icon">%</div>
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.3 2.3 2.3 4.7-5"/></svg></div>
         <div class="metric-value" id="mStudy">0<span class="mu">/10</span></div>
         <div class="metric-label">学习日已打卡</div>
       </article>
       <article class="metric reveal">
-        <div class="metric-icon">*</div>
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
         <div class="metric-value" id="mSlot">0<span class="mu">段</span></div>
         <div class="metric-label">累计打卡时段</div>
       </article>
       <article class="metric reveal">
-        <div class="metric-icon">#</div>
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3-1.5 4-3 6-1.6 2.1-2 4.2-1 6.2 1 2 2.6 3.3 4.7 3.6 2.6.4 5-.7 6-3 .9-2.1.3-4.6-1.3-6.6-.4 1-1.4 1.8-2.6 1.8-.4-3 0-6 3-8z"/></svg></div>
         <div class="metric-value" id="mStreak">0<span class="mu">天</span></div>
         <div class="metric-label">连续打卡</div>
       </article>
     </div>
+
+    <!-- ---------- Selected day detail ---------- -->
+    <div class="day-panel reveal" id="dayPanel">
+      <header class="dp-head">
+        <div class="dp-left">
+          <p class="dp-kicker" id="dpKicker">—</p>
+          <h3 class="dp-title" id="dpTitle">—</h3>
+        </div>
+        <span class="dp-badge" id="dpBadge">休息</span>
+      </header>
+
+      <div class="tl-head" id="tlHead"></div>
+      <ol class="timeline" id="timeline"></ol>
+
+      <div class="review">
+        <h4 class="review-title">当日复盘 · 三问</h4>
+        <p class="review-hint">只记三件事，不写长篇。完成主线再补，别把复盘变成负担。</p>
+        <div class="review-grid">
+          <label class="rv-field">
+            <span>完成了什么</span>
+            <textarea id="rvDone" rows="3" placeholder="例：今天那两小时把第三章例题过完了，笔记也整完了"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>卡在哪里</span>
+            <textarea id="rvStuck" rows="3" placeholder="例：第二题卡在公式变形，明天先把这一节重看一遍"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>明天先做什么</span>
+            <textarea id="rvNext" rows="3" placeholder="例：先把今天卡住的那节补上，再往后推一节"></textarea>
+          </label>
+        </div>
+        <p class="save-hint" id="saveHint">随打随存，存在本机浏览器里</p>
+      </div>
+    </div>
+
 
     <!-- ---------- 计划周期（可自定义） ---------- -->
     <div class="cal-block reveal">
@@ -264,43 +428,10 @@
       <div class="cal" id="cal"></div>
     </div>
 
-    <!-- ---------- Selected day detail ---------- -->
-    <div class="day-panel reveal" id="dayPanel">
-      <header class="dp-head">
-        <div class="dp-left">
-          <p class="dp-kicker" id="dpKicker">—</p>
-          <h3 class="dp-title" id="dpTitle">—</h3>
-        </div>
-        <span class="dp-badge" id="dpBadge">休息</span>
-      </header>
-
-      <div class="tl-head" id="tlHead"></div>
-      <ol class="timeline" id="timeline"></ol>
-
-      <div class="review">
-        <h4 class="review-title">当日复盘 · 三问</h4>
-        <p class="review-hint">只记三件事，不写长篇。完成主线再补，别把复盘变成负担。</p>
-        <div class="review-grid">
-          <label class="rv-field">
-            <span>完成了什么</span>
-            <textarea id="rvDone" rows="3" placeholder="例：今天那两小时把第三章例题过完了，笔记也整完了"></textarea>
-          </label>
-          <label class="rv-field">
-            <span>卡在哪里</span>
-            <textarea id="rvStuck" rows="3" placeholder="例：第二题卡在公式变形，明天先把这一节重看一遍"></textarea>
-          </label>
-          <label class="rv-field">
-            <span>明天先做什么</span>
-            <textarea id="rvNext" rows="3" placeholder="例：先把今天卡住的那节补上，再往后推一节"></textarea>
-          </label>
-        </div>
-        <p class="save-hint" id="saveHint">随打随存，存在本机浏览器里</p>
-      </div>
-    </div>
-
     <!-- ---------- Four tracks · 顶部标签翻页 ---------- -->
-    <section class="tracks reveal" id="tracks">
-      <div class="block-head">
+    <section class="tracks" id="tracks">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">SYSTEM</span></div>
+      <div class="block-head reveal">
       <p class="eyebrow">Tracks</p>
       <h3 class="block-title">学习模块 · 随便加、随便改</h3>
       <p class="block-sub">
@@ -309,7 +440,7 @@
       </p>
       </div>
 
-      <div class="track-tools" id="trackTools">
+      <div class="track-tools reveal" id="trackTools">
         <button class="tt-btn tt-primary" type="button" data-tool="edit" id="editToggle"
                 aria-pressed="false">✎ 编辑计划</button>
         <button class="tt-btn" type="button" data-tool="export">↓ 导出 JSON</button>
@@ -319,13 +450,14 @@
       </div>
       <p class="track-tools-hint" id="toolsHint"></p>
 
-      <div class="track-tabs" id="trackTabs" role="tablist" aria-label="学习模块"></div>
-      <div class="track-panels" id="trackPanels"></div>
+      <div class="track-tabs reveal" id="trackTabs" role="tablist" aria-label="学习模块"></div>
+      <div class="track-panels reveal" id="trackPanels"></div>
     </section>
 
     <!-- ---------- 资源仓库 ---------- -->
-    <section class="repo reveal" id="repo">
-      <div class="block-head">
+    <section class="repo" id="repo">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">VAULT</span></div>
+      <div class="block-head reveal">
         <p class="eyebrow">Library</p>
         <h3 class="block-title">资源仓库</h3>
         <p class="block-sub">
@@ -335,7 +467,7 @@
       </div>
 
       <!-- ============ A. CAD 图纸仓库 ============ -->
-      <div class="repo-block">
+      <div class="repo-block reveal">
         <div class="rb-head">
           <h4 class="rb-title">CAD 练习图纸仓库 <span class="rb-count" id="galCount"></span></h4>
           <div class="rb-acts">
@@ -349,6 +481,7 @@
         </p>
 
         <div class="gal-filter" id="galFilter">
+          <input class="tt-input" type="search" id="galSearch" placeholder="搜图号 / 名称 / 知识点…" aria-label="搜索图纸" />
           <div class="gf-row" id="gfShape"></div>
           <div class="gf-row" id="gfMode"></div>
         </div>
@@ -357,7 +490,7 @@
       </div>
 
       <!-- ============ B. 我的资料仓库 ============ -->
-      <div class="repo-block">
+      <div class="repo-block reveal">
         <div class="rb-head">
           <h4 class="rb-title">我的资料仓库 <span class="rb-count" id="libCount"></span></h4>
           <div class="rb-acts">
@@ -382,8 +515,9 @@
     </section>
 
     <!-- ---------- 数据中心 ---------- -->
-    <section class="insight reveal" id="stats">
-      <div class="block-head">
+    <section class="insight" id="stats">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">SIGNAL</span></div>
+      <div class="block-head reveal">
         <p class="eyebrow">Insights</p>
         <h3 class="block-title">数据中心 · 让坚持看得见</h3>
         <p class="block-sub">
@@ -393,35 +527,40 @@
       </div>
 
       <div class="board" id="statCards">
-        <article class="metric">
-          <div class="metric-icon">#</div>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3-1.5 4-3 6-1.6 2.1-2 4.2-1 6.2 1 2 2.6 3.3 4.7 3.6 2.6.4 5-.7 6-3 .9-2.1.3-4.6-1.3-6.6-.4 1-1.4 1.8-2.6 1.8-.4-3 0-6 3-8z"/></svg></div>
           <div class="metric-value" id="sBest">0<span class="mu">天</span></div>
           <div class="metric-label">最长连续打卡</div>
         </article>
-        <article class="metric">
-          <div class="metric-icon">%</div>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.3 2.3 2.3 4.7-5"/></svg></div>
           <div class="metric-value" id="sDays">0<span class="mu">天</span></div>
           <div class="metric-label">累计学习日</div>
         </article>
-        <article class="metric">
-          <div class="metric-icon">*</div>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
           <div class="metric-value" id="sSlots">0<span class="mu">段</span></div>
           <div class="metric-label">总打卡时段</div>
         </article>
-        <article class="metric">
-          <div class="metric-icon">&lt;</div>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
           <div class="metric-value" id="sAvg">0<span class="mu">段/天</span></div>
           <div class="metric-label">日均打卡时段</div>
         </article>
       </div>
 
       <!-- 年度热力图 -->
-      <div class="stat-block">
+      <div class="stat-block reveal">
         <div class="sb-head">
           <h4 class="sb-title">年度热力图</h4>
           <span class="sb-note" id="hmNote"></span>
         </div>
-        <div class="hm-scroll"><div class="hm" id="heatmap"></div></div>
+        <div class="hm-scroll">
+          <div class="hm-wrap">
+            <div class="hm-rows" aria-hidden="true"><i>一</i><i>三</i><i>五</i></div>
+            <div class="hm" id="heatmap"></div>
+          </div>
+        </div>
         <div class="hm-legend">
           <span class="hm-cap">少</span>
           <i class="hm-lv l0"></i><i class="hm-lv l1"></i><i class="hm-lv l2"></i><i class="hm-lv l3"></i><i class="hm-lv l4"></i>
@@ -430,7 +569,7 @@
       </div>
 
       <!-- 四条线完成度 -->
-      <div class="stat-block">
+      <div class="stat-block reveal">
         <div class="sb-head">
           <h4 class="sb-title">各线完成度</h4>
           <span class="sb-note">按「学习模块」里勾掉的阶段算</span>
@@ -439,7 +578,7 @@
       </div>
 
       <!-- 打卡趋势 -->
-      <div class="stat-block">
+      <div class="stat-block reveal">
         <div class="sb-head">
           <h4 class="sb-title">打卡趋势</h4>
           <div class="sb-seg" id="trendSeg" role="group" aria-label="趋势粒度">
@@ -447,13 +586,15 @@
             <button class="seg-btn" type="button" data-trend="month" aria-pressed="false">按月</button>
           </div>
         </div>
+        <p class="trend-note" id="trendNote"></p>
         <div class="trend" id="trend"></div>
       </div>
     </section>
 
     <!-- ---------- 复盘墙 ---------- -->
-    <section class="journal reveal" id="journal">
-      <div class="block-head">
+    <section class="journal" id="journal">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">REFLECT</span></div>
+      <div class="block-head reveal">
         <p class="eyebrow">Journal</p>
         <h3 class="block-title">复盘墙 · 把每天那三句话攒起来</h3>
         <p class="block-sub">
@@ -462,14 +603,14 @@
         </p>
       </div>
 
-      <div class="track-tools journal-tools" id="jTools">
+      <div class="track-tools journal-tools reveal" id="jTools">
         <input class="tt-input" type="search" id="jSearch" placeholder="搜复盘内容…" aria-label="搜索复盘内容" />
         <button class="tt-btn" type="button" id="jStuck" aria-pressed="false">只看有卡点</button>
         <button class="tt-btn tt-primary" type="button" id="jExport">↓ 导出 Markdown</button>
       </div>
       <p class="track-tools-hint" id="jHint"></p>
 
-      <div class="journal-list" id="journalList"></div>
+      <div class="journal-list reveal" id="journalList"></div>
     </section>
 
     <footer class="plan-foot">

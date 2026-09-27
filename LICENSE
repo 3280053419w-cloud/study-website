@@ -40,7 +40,7 @@ SOFTWARE.
 | Inter 字体（SIL OFL 1.1） | Google Fonts CDN | 系统字体栈 |
 | Font Awesome 6.5.2 图标（CC BY 4.0 / SIL OFL 1.1 / MIT） | cdnjs CDN | 内联 SVG（手写） |
 | BubbledotICG-FinePos 字体 | onlinewebfonts CDN | 本地 `GeistPixel-Circle.woff2` |
-| 首页背景视频 | 第三方 CloudFront | 本地 Canvas 点阵动效 |
+| 首页背景视频 | 第三方 CloudFront | 本地 WebGL 着色器实时绘制（v0.2.0–v0.3.x 期间为 Canvas 点阵） |
 
 移除后页面不发起任何外部请求，可完全离线运行。
 

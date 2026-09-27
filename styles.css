@@ -20,6 +20,7 @@
   --bg: #000000;
   --text: #ffffff;
   --muted: #8e8e8e;
+  --ink-faint: rgba(255, 255, 255, 0.62); /* v0.7 辅助文字：黑底 6.5:1 起 */
   --nav-text: #2e2e2e;
   --pill-dark: #28282a;
   --sign-in-text: #c8c8c8;
@@ -27,6 +28,22 @@
   --trust-bg: #28282a;
   --trust-border: rgba(255, 255, 255, 0.4);
   --trust-text: #c4c2c3;
+  /* v0.5：强调色由橙系换成蓝紫系（全站统一）。四条都在 :root —— 深色区的
+     hover 换色也要用它们（原先只定义在 .landing 里，深色区写 var(--accent) 会解析为空）。
+     对比度全部实算过，四个「底×字」组合都达 AA：
+       --accent      黑底上的文字 / 图形      6.42:1
+       --accent-ink  紫实底 × 白字            5.84:1（白底上的紫字同值）
+       --accent-press 紫实底 × 白字（hover）  4.81:1 */
+  --accent: #8b7cff; /* 蓝紫：暗底上的图形与文字强调 —— 小字可用（黑底 6.42:1） */
+  --accent-ink: #6d3ef0; /* 深蓝紫：白字实底 / 白底文字（5.84:1） */
+  --accent-press: #7c4dff; /* 蓝紫：hover 实底（白字 4.81:1） */
+  --accent-soft: #cbb8ff; /* 淡蓝紫：标题副行（黑底 11.8:1） */
+  /* v0.4：全局 CRT 背景 —— 与着色器里的 backgroundColor / color 参数保持一致
+     v0.5：磷光色随强调色一起换到蓝紫同族（着色器已压暗到近黑，只作底色质感） */
+  --crt-base: #05010a;
+  --crt-phosphor: #8b5cf6;
+  /* v0.3.0：顶栏行高（吸顶栏离流后，.page 用它做等值补偿） */
+  --head-h: clamp(44px, 5.2vw, 48px);
   /* 正文用系统字体栈（零请求）；标题用本地点阵字体 */
   --font-sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
     "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
@@ -43,16 +60,47 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  /* v0.3.0：顶栏改 fixed 吸顶后，锚点跳转与 scrollIntoView 会被顶栏盖住 ——
+     给滚动落点预留「顶栏 padding + 行高 + 8px 余量」 */
+  scroll-padding-top: calc(clamp(16px, 2.4vh, 28px) + var(--head-h) + 8px);
 }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--crt-base);
   color: var(--text);
   font-family: var(--font-sans);
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- v0.4 全局 CRT 背景（两层） ----------
+   .crt-bg   ：WebGL 画面，固定铺满视口，压在所有内容之下（z-2）
+   .crt-veil ：暗纱，压在画面之上、内容之下（z-1）。
+               0.80 这个值是**按实测峰值反推**的，不是审美取值。
+               v0.5 把着色器压暗（brightness 0.40）并加了流光带，探针
+               readPixels 实测：峰值 rgb(104,71,157)、均值 rgb(35,24,60)；
+               叠 0.80 纱后分别是 rgb(24,16,39) / rgb(10,6,19) —— 底色回到「近黑」，
+               色度只剩一点蓝紫。截图像素统计也印证：最暗 30% 像素 ≈ rgb(5,3,10)。
+               此时全站最暗的次要文字 --muted #8e8e8e 仍有 5.61:1（达 AA），
+               正文白字 ≈11:1。想让画面更亮，就得同步提亮 --muted，两者是绑定的。 */
+.crt-bg {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  z-index: -2;
+  pointer-events: none;
+}
+
+.crt-veil {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(4, 2, 9, 0.8);
 }
 
 img {
@@ -102,54 +150,48 @@ button {
   overflow: hidden;
   /* 背景交给 body(#000)。视频层用负 z-index 沉到内容下方，
      这样 .page 不必创建 stacking context，header/burger 才能压到 overlay 之上。 */
+
+  /* ---- v0.4：整页 CRT —— 首屏不再是纸色封面，改为 CRT 场上的浅字 ---- */
+  --bg: transparent; /* 让全局 CRT 画面透出来 */
+  --text: #f2f2f0;
+  --muted: #b9b9b6;
+  /* v0.7：导航胶囊已改透明淡紫、.nav-link 直接用淡紫字 → 此令牌在 .landing 内已无使用者
+     （:root 的 --nav-text 仍喂着白底移动菜单 .sheet-link，不能删） */
+  --pill-dark: #f2f2f0; /* 深底上的胶囊改「反白」 */
+  --sign-in-text: #141414;
+  --nav-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  --trust-bg: #141414;
+  --trust-border: rgba(255, 255, 255, 0.34);
+  --trust-text: #f2f2f0;
+  /* 封面专用局部令牌（深色区不使用） */
+  --paper: transparent;
+  --ink: #f2f2f0; /* 正文主色（深底浅字） */
+  --ink-soft: #c9c9c6; /* 次要文字 */
+  --ink-dim: #b9b9b6; /* 标题点缀 */
+  /* --accent / --accent-ink 已提升到 :root（深色区 hover 换色也要用），此处不再重复定义 */
+  --line-soft: rgba(255, 255, 255, 0.16);
 }
 
-/* ---- background: 本地 Canvas 点阵（无外部视频） ---- */
+/* ---- v0.4：首屏不再自带背景，改为「全局 CRT 画面 + 暗纱」的透明窗口 ---- */
 .bg {
   position: absolute;
   inset: 0;
-  overflow: hidden;
-  background: var(--bg);
+  overflow: hidden; /* 裁掉超大水印的下半截 */
+  background: transparent;
   z-index: -1;
 }
 
-.bg-canvas {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* 中部一圈轻暗角：白字标题压在点阵上时保证可读，边缘让点阵透出来 */
-.bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: radial-gradient(
-    122% 74% at 50% 44%,
-    rgba(0, 0, 0, 0.52) 0%,
-    rgba(0, 0, 0, 0.32) 48%,
-    rgba(0, 0, 0, 0.06) 80%,
-    rgba(0, 0, 0, 0) 100%
-  );
-  pointer-events: none;
-}
-
-/* soft hand-off from the video into the black plan board below */
+/* 底部收边：给水印一个「沉入暗处」的落点，同时把首屏与下方工具区接上 */
 .bg::after {
   content: "";
   position: absolute;
   inset: auto 0 0 0;
-  height: 24vh;
+  height: 18vh;
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0) 0%,
-    rgba(0, 0, 0, 0.5) 62%,
-    #000 100%
+    rgba(5, 1, 10, 0) 0%,
+    rgba(5, 1, 10, 0.55) 60%,
+    rgba(5, 1, 10, 0.92) 100%
   );
   pointer-events: none;
   z-index: 1;
@@ -208,14 +250,17 @@ button {
 }
 
 /* ---- nav pill ---- */
+/* v0.7：导航胶囊改「透明淡紫」（用户指定）。原为白底深字，整页转暗场后
+   白胶囊在暗页上过亮；改用低透明度紫底 + 内圈紫描边（box-shadow 实现，
+   不占布局，头栏行高不受影响）。字形、字号、字重与透明度层级一律未动。 */
 .nav-pill {
   flex: 1 1 auto;
   max-width: 430px;
   height: clamp(44px, 5.2vw, 48px);
   padding: 4px 8px;
   border-radius: 999px;
-  background: #fff;
-  box-shadow: var(--nav-shadow);
+  background: rgba(139, 124, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(139, 124, 255, 0.32), var(--nav-shadow);
   display: flex;
   align-items: stretch;
   justify-content: space-evenly;
@@ -230,7 +275,7 @@ button {
   font-size: clamp(13px, 1.4vw, 15px);
   font-weight: 500;
   letter-spacing: -0.01em;
-  color: var(--nav-text);
+  color: #cbb8ff; /* 淡紫（黑底 11.8:1）。不能用 var(--nav-text)：它还喂着白底移动菜单 */
   opacity: 0.5;
   white-space: nowrap;
   transition: opacity 0.25s ease;
@@ -253,8 +298,8 @@ button {
   height: 3px;
   margin-left: -1.5px;
   border-radius: 50%;
-  background: #000;
-  box-shadow: -5px 0 0 #000, 5px 0 0 #000;
+  background: #cbb8ff; /* v0.7：随胶囊转淡紫（原 #000 在暗底胶囊上不可见） */
+  box-shadow: -5px 0 0 #cbb8ff, 5px 0 0 #cbb8ff;
   opacity: 0;
   transition: opacity 0.25s ease;
 }
@@ -282,7 +327,9 @@ button {
 }
 
 .signin:hover {
-  background: #323234;
+  /* v0.5：往更亮的紫走。注意不能用 --accent(#8b7cff)：它配白字只有 3.27:1，
+     不够小字 AA，所以 hover 底一律用 --accent-press（白字 4.81:1） */
+  background: var(--accent-press);
   color: #fff;
   transform: translateY(-1px);
 }
@@ -458,12 +505,13 @@ button {
   letter-spacing: -0.04em;
   color: #ffffff;
   opacity: 0;
-  transform: translateY(14px);
-  animation: headlineFade 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  clip-path: inset(0 0 100% 0); /* 遮罩揭开：先整行盖住，自下而上揭开 */
+  transform: translateY(0.42em) scaleY(1.24); /* 位移 + 压缩，归位 */
+  animation: heroLineIn 1.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .headline .l1 {
-  animation-delay: 0.12s;
+  animation-delay: 0.14s;
 }
 .headline .l2 {
   animation-delay: 0.3s;
@@ -532,6 +580,11 @@ button {
   margin: 0 auto;
 }
 
+/* v0.9 空白模板发布版：首屏统计从四格变三格（隐藏「40张 练习图纸」那格） */
+.stats.stats-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .stat {
   display: flex;
   flex-direction: column;
@@ -597,6 +650,804 @@ button {
 }
 
 /* ==================================================================
+   REGION 1.5 — LANDING · light cover（v0.3.0）
+   首屏封面化新样式：布局 / 今日卡 / 水印 / 底部信息条 / 断点。
+   浅色令牌覆写见上方 .landing 规则；深色工具区不受影响。
+   ================================================================== */
+
+/* trust-pill 里两个态标（有连续 / 零连续）的显隐靠 [hidden] */
+.trust-pill [hidden] {
+  display: none !important;
+}
+
+/* ---- page frame 加宽为 1280 封面画布 ---- */
+.page {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-left: clamp(18px, 4vw, 48px);
+  padding-right: clamp(18px, 4vw, 48px);
+  /* v0.3.0：顶栏改 fixed 后离流，这里用 padding-top 等值补偿 ——
+     border-box 定高下 hero 的垂直中心数学上精确不变 */
+  padding-top: calc(clamp(16px, 2.4vh, 28px) + var(--head-h));
+}
+
+/* ---- header：logo 左 / 导航居 / 日期+登录右；v0.3.0 起改为吸顶 ---- */
+.site-header {
+  position: fixed; /* 覆盖基类的 relative；祖先链无 transform/filter，fixed 成立 */
+  top: 0;
+  left: 0;
+  right: 0;
+  width: auto; /* 覆盖基类 width:100%，配合 left/right 让 max-width 生效 */
+  max-width: 1280px; /* 与 .page 的 border-box 同宽 → 内容列逐像素对齐（勿改成 1280+2×padding） */
+  margin: 0 auto;
+  padding: clamp(16px, 2.4vh, 28px) clamp(18px, 4vw, 48px) 0;
+  background: transparent; /* 未滚动：与改版前视觉完全一致 */
+  border-bottom: 1px solid transparent;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* v0.4：整页都是 CRT 暗场 → 吸顶态统一为「黑玻璃 + 反白胶囊」
+   （v0.3.0 的两段式「纸色 → 黑玻璃」随浅色封面一起退役） */
+.site-header.is-stuck {
+  background: rgba(8, 4, 16, 0.62);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 画面变亮时才看得出的一点分离感 */
+.site-header.is-past-hero .logo-btn {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* 不支持 backdrop-filter（无 GPU / 老引擎）→ 近实色兜底，不糊成透明 */
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .site-header.is-stuck {
+    background: rgba(8, 4, 16, 0.94);
+  }
+}
+
+.nav-pill {
+  margin-inline: auto;
+}
+
+/* v0.5：头栏「进入计划板」同样改紫实底，与首屏主按钮同族（白字 5.84:1）。
+   不再需要「滚出首屏时反色」——它在两态下都是紫的。 */
+.signin {
+  background: var(--accent-ink);
+  color: #ffffff;
+}
+
+/* v0.4：胶囊底色翻成反白后，汉堡里的白条会「白压白」——改成深条 */
+.burger span {
+  background: #141414;
+}
+
+.hero-date {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+/* ---- hero：左文右卡两列 ---- */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  column-gap: clamp(24px, 4vw, 64px);
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  max-width: 1280px;
+}
+
+.hero-left {
+  min-width: 0;
+}
+
+.hero-right {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 2.4vh, 22px);
+  min-width: 0;
+}
+
+/* ---- 眉题（不能用 .eyebrow：深色区已有同名规则，会以浅底白字反超） ---- */
+.hero-eyebrow {
+  margin: 0 0 clamp(12px, 1.8vh, 18px);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent); /* 深底上用亮橙（--accent-ink 在暗场里太沉） */
+}
+
+/* ---- 标题：两级紫（主行亮 / 副行淡）—— 保留参考图「一行重一行轻」的节奏，
+       只把明度差换成同色系的紫；副行更浅，正好衬出棱镜边缘的色散 ---- */
+.headline .line {
+  color: var(--ink); /* 兜底：两行都带 l1/l2，这条只防结构变动 */
+  font-size: clamp(34px, 6vw, 82px); /* 上限 82px：左列 ~644px 宽下 8 个汉字不裁角 */
+}
+
+.headline .l1 {
+  color: var(--accent); /* 亮蓝紫 · 黑底 6.42:1 */
+}
+
+.headline .l2 {
+  color: var(--accent-soft); /* 淡蓝紫 · 黑底 11.8:1 */
+}
+
+.headline .line .dim {
+  color: var(--ink-dim);
+}
+
+/* ---- trust：社会证明行（★ 连续打卡 N 天） ---- */
+.trust {
+  margin-top: clamp(14px, 2vh, 22px);
+  margin-bottom: 0;
+}
+
+.trust-star {
+  margin-right: 6px;
+  font-size: 0.95em;
+  color: var(--accent);
+}
+
+.trust-pill b {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* ---- 副标题：实色深灰，浅底不再用低透明度 ---- */
+.subhead {
+  max-width: min(560px, 100%);
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
+/* ---- 双胶囊 CTA：深底主按钮（内嵌橙圆箭头）+ 描边次按钮 ---- */
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: clamp(20px, 3vh, 30px);
+}
+
+.cta {
+  margin-top: 0;
+  gap: 10px;
+  background: var(--accent-ink); /* v0.5：主按钮改紫实底（白字 5.84:1，达 AA） */
+  color: #ffffff;
+  box-shadow: 0 10px 30px rgba(60, 30, 160, 0.45);
+}
+
+.cta:hover {
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+}
+
+.cta-orb {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  /* v0.5：主按钮已是紫底 → 圆箭头必须反色，否则紫底紫圆会「消失」
+     淡紫圆 + 深紫箭头（4.80:1） */
+  background: #eae6ff;
+  color: var(--accent-ink);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cta-orb .ti {
+  width: 14px;
+  height: 14px;
+}
+
+.cta:hover .cta-orb {
+  transform: translateX(3px);
+}
+
+.cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: clamp(11px, 1.6vh, 13px) clamp(18px, 2.4vw, 24px);
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  color: var(--ink);
+  font-size: clamp(13px, 1.4vw, 14px);
+  font-weight: 500;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.cta-ghost:hover {
+  /* v0.5：这里原是浅色封面时代的遗留值（深字 + 白底），暗场上会闪白 → 改紫 */
+  border-color: var(--accent);
+  background: rgba(139, 124, 255, 0.18);
+  color: #fff;
+}
+
+.cta-ghost.anim {
+  animation-name: revealPulse;
+}
+
+/* ---- 右列：今日概览卡 ---- */
+.hero-card {
+  --hc-pad: clamp(18px, 1.8vw, 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--hc-pad);
+  border-radius: 20px;
+  background: rgba(14, 7, 26, 0.58); /* v0.4：CRT 暗场上的玻璃卡 */
+  border: 1px solid var(--line-soft);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.hc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hc-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #f2f2f0; /* 深底上的反白小方块（不能用 --ink：那边现在是浅色） */
+  color: #141414;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+
+.hc-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.hc-date {
+  margin-left: 6px;
+  color: var(--ink-dim);
+}
+
+.hc-day {
+  margin: 2px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 1.8vw, 24px);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.hc-slots {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.hc-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.hc-bar i {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hc-bar.is-rest i {
+  background: #9a9a96;
+}
+
+.hc-cta {
+  align-self: flex-start;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.hc-cta:hover {
+  text-decoration: underline;
+}
+
+/* ---- 右列：四格统计（沿用原有 DOM 与计数器） ---- */
+.stats {
+  max-width: none;
+  gap: clamp(10px, 1.4vw, 16px);
+}
+
+.stat {
+  align-items: flex-start;
+  text-align: left;
+}
+
+.stat-icon {
+  color: var(--ink-dim);
+}
+
+.stat-value {
+  color: var(--ink);
+}
+
+/* ---- 超大水印：.bg 内部、点阵之上、提亮层与底边渐隐之下 ---- */
+.hero-mark {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translate(-50%, 42%);
+  z-index: 0;
+  font-family: var(--font-display);
+  font-size: clamp(120px, 26vw, 380px);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.26);
+  pointer-events: none;
+  user-select: none;
+}
+
+@supports not (-webkit-text-stroke: 1px black) {
+  .hero-mark {
+    color: rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* ---- 底部信息条 ---- */
+.hero-bar {
+  position: absolute;
+  left: clamp(18px, 4vw, 48px);
+  right: clamp(18px, 4vw, 48px);
+  bottom: clamp(14px, 2.2vh, 22px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 2;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.hb-tag {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+}
+
+.hb-mid {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hb-dot {
+  font-size: 8px;
+  color: var(--accent);
+}
+
+.hb-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hero-bar .scroll-cue {
+  margin-top: 0;
+  color: var(--ink-soft);
+}
+
+.hero-bar .scroll-cue:hover {
+  color: var(--ink);
+}
+
+/* ==================================================================
+   v0.4 主视觉 — 悬浮透光棱镜
+   参考视频的四个特征：透明立方体自转 / 边缘银白玻璃高光带蓝紫与少量暖色色散 /
+   暗空间纵深 / 微小漂浮。全部用 CSS 3D + 内联 SVG，零依赖、零请求。
+   克制原则：只转不弹、不闪；面几乎全透（alpha ≤ .06），重量感全压在「边」上。
+   ================================================================== */
+
+/* 层级：本层 z-index 0，两列内容 z-index 1 → 棱镜永远在文字之下 */
+.hero {
+  position: relative;
+}
+
+.hero-left,
+.hero-right {
+  position: relative;
+  z-index: 1;
+}
+
+.cube-layer {
+  /* 注意：斜置立方体的实际轮廓约为 --cube 的 1.5 倍（含光晕/轨道更宽），
+     所以这里给的是「边长」，留白要按轮廓算 —— 别按 --cube 排布 */
+  --cube: clamp(130px, 13.5vw, 200px);
+  --edge: rgba(255, 255, 255, 0.58);
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none; /* 绝不挡 CTA / 导航的点击 */
+  opacity: 0;
+  animation: cubeIn 1.5s cubic-bezier(0.22, 1, 0.36, 1) 0.35s forwards; /* 柔和进入后接慢速循环 */
+}
+
+@keyframes cubeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- 紫色纵深：两团低透明度光晕（不是大面积亮紫底色） ---- */
+.cube-halo {
+  position: absolute;
+  left: 53%;
+  top: 43%;
+  width: calc(var(--cube) * 2.4);
+  height: calc(var(--cube) * 2.4);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgba(104, 80, 206, 0.3),
+    rgba(88, 66, 180, 0.13) 52%,
+    transparent 74%
+  );
+  filter: blur(26px);
+}
+
+.cube-halo-warm {
+  left: 61%;
+  top: 55%;
+  width: calc(var(--cube) * 1.5);
+  height: calc(var(--cube) * 1.5);
+  background: radial-gradient(closest-side, rgba(240, 179, 126, 0.12), transparent 70%);
+  filter: blur(30px);
+}
+
+/* ---- 两条细轨道线（暗空间纵深，比标题弱得多） ---- */
+.cube-orbit {
+  position: absolute;
+  left: 53%;
+  top: 43%;
+  width: calc(var(--cube) * 2.1);
+  height: calc(var(--cube) * 0.78);
+  transform: translate(-50%, -50%) rotate(-18deg);
+  border: 1px solid rgba(186, 176, 255, 0.14);
+  border-radius: 50%;
+}
+
+.cube-orbit-b {
+  width: calc(var(--cube) * 1.7);
+  height: calc(var(--cube) * 2.2);
+  transform: translate(-50%, -50%) rotate(28deg);
+  border-color: rgba(186, 176, 255, 0.1);
+}
+
+/* ---- 少量淡紫微粒：整组用一个元素 + 若干 radial-gradient 点，省钱 ---- */
+.cube-dust {
+  position: absolute;
+  inset: -10% -6%;
+  background-image: radial-gradient(1.4px 1.4px at 18% 32%, rgba(214, 208, 255, 0.45), transparent),
+    radial-gradient(1.2px 1.2px at 72% 22%, rgba(214, 208, 255, 0.35), transparent),
+    radial-gradient(1.6px 1.6px at 63% 71%, rgba(224, 218, 255, 0.4), transparent),
+    radial-gradient(1.1px 1.1px at 34% 78%, rgba(214, 208, 255, 0.3), transparent),
+    radial-gradient(1.3px 1.3px at 86% 55%, rgba(214, 208, 255, 0.28), transparent);
+  animation: cubeDust 26s ease-in-out infinite alternate;
+}
+
+@keyframes cubeDust {
+  from {
+    opacity: 0.5;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
+/* ---- 3D 舞台：透视在这里，鼠标倾斜也加在这里（位移很小） ---- */
+.cube-stage {
+  position: absolute;
+  left: 53%;
+  top: 43%;
+  width: var(--cube);
+  height: var(--cube);
+  transform: translate(-50%, -50%) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transform-origin: 50% 50%;
+  perspective: 1100px;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 从 stage 到各个面，整条链都必须 preserve-3d，且不能出现 opacity/filter（会打平 3D） */
+.cube-sway,
+.cube-float,
+.cube-spin-y,
+.cube-spin-x,
+.cube {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+/* 三轴不同周期 → 永不快速重复，像展品在缓慢翻面 */
+.cube-sway {
+  animation: cubeSway 13s ease-in-out infinite;
+}
+.cube-float {
+  animation: cubeFloat 9s ease-in-out infinite;
+}
+.cube-spin-y {
+  animation: cubeSpinY 46s linear infinite;
+}
+.cube-spin-x {
+  animation: cubeSpinX 33s linear infinite;
+}
+
+@keyframes cubeSway {
+  0%,
+  100% {
+    transform: rotateZ(-1.6deg);
+  }
+  50% {
+    transform: rotateZ(1.6deg);
+  }
+}
+
+@keyframes cubeFloat {
+  0%,
+  100% {
+    transform: translateY(-5px);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+@keyframes cubeSpinY {
+  from {
+    transform: rotateY(24deg);
+  }
+  to {
+    transform: rotateY(384deg);
+  }
+}
+
+@keyframes cubeSpinX {
+  from {
+    transform: rotateX(-16deg);
+  }
+  to {
+    transform: rotateX(344deg);
+  }
+}
+
+/* ---- 六个玻璃面：面几乎全透，重量压在边与色散上 ---- */
+.cube-face {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  color: rgba(206, 198, 255, 0.3); /* 面内 SVG 的 currentColor 底色 */
+  background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.055),
+      rgba(255, 255, 255, 0) 45%,
+      rgba(255, 255, 255, 0.03)
+    ),
+    radial-gradient(120% 90% at 30% 15%, rgba(180, 168, 255, 0.1), transparent 70%);
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  backface-visibility: visible;
+}
+
+/* 边缘色散：内外两道描边错开 1.5px，一面偏冷、一面偏暖（模拟玻璃折射） */
+.cube-face::before,
+.cube-face::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.cube-face::before {
+  inset: -1.5px;
+  border: 1px solid var(--fr1, rgba(138, 124, 255, 0.26));
+}
+
+.cube-face::after {
+  inset: 1.5px;
+  border: 1px solid var(--fr2, rgba(240, 179, 126, 0.18));
+}
+
+.f-front,
+.f-left,
+.f-top {
+  --fr1: rgba(138, 124, 255, 0.3);
+  --fr2: rgba(240, 179, 126, 0.16);
+}
+
+.f-back,
+.f-right,
+.f-bottom {
+  --fr1: rgba(240, 179, 126, 0.15);
+  --fr2: rgba(138, 124, 255, 0.28);
+}
+
+.f-front {
+  transform: translateZ(calc(var(--cube) / 2));
+}
+.f-back {
+  transform: rotateY(180deg) translateZ(calc(var(--cube) / 2));
+}
+.f-right {
+  transform: rotateY(90deg) translateZ(calc(var(--cube) / 2));
+}
+.f-left {
+  transform: rotateY(-90deg) translateZ(calc(var(--cube) / 2));
+}
+.f-top {
+  transform: rotateX(90deg) translateZ(calc(var(--cube) / 2));
+}
+.f-bottom {
+  transform: rotateX(-90deg) translateZ(calc(var(--cube) / 2));
+}
+
+/* ---- 面内微型元素：日历点阵 / 轨道 / 刻度 / 数据点（只有抽象符号，无具体文字） ---- */
+.cube-face svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cl-frame {
+  stroke: rgba(226, 222, 255, 0.32);
+}
+
+.cl-orbit {
+  stroke: rgba(196, 186, 255, 0.22);
+}
+
+.cl-dots circle {
+  fill: rgba(206, 198, 255, 0.28);
+  stroke: none;
+}
+
+.cl-lit circle,
+rect.cl-lit {
+  fill: rgba(232, 226, 255, 0.6);
+  stroke: none;
+}
+
+rect.cl-lit {
+  fill: none;
+  stroke: rgba(232, 226, 255, 0.55);
+}
+
+/* ---- 断点（首屏封面专用，勿与深色区断点混排） ---- */
+@media (max-width: 1100px) {
+  .hero {
+    column-gap: clamp(20px, 3vw, 40px);
+  }
+
+  .hero-card {
+    --hc-pad: 16px;
+  }
+
+  .cube-layer {
+    --cube: clamp(118px, 12.6vw, 176px);
+  }
+}
+
+@media (max-width: 860px) {
+  .hero {
+    grid-template-columns: 1fr;
+    row-gap: clamp(18px, 3vh, 26px);
+    align-content: center;
+  }
+
+  .hero-card {
+    width: 100%;
+  }
+
+  .hero-bar .hb-text {
+    display: none;
+  }
+
+  .hero-date {
+    display: none;
+  }
+
+  /* 单列后棱镜挪到右上：那里正好是标题第一行（「把学习」三字）右侧的空白 */
+  .cube-layer {
+    --cube: clamp(88px, 22vw, 120px);
+  }
+
+  .cube-stage {
+    left: auto;
+    right: -10%;
+    top: 10%;
+    transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  }
+
+  .cube-halo,
+  .cube-orbit,
+  .cube-orbit-b {
+    left: 78%;
+    top: 16%;
+  }
+
+  .cube-halo {
+    width: calc(var(--cube) * 2.1);
+    height: calc(var(--cube) * 2.1);
+  }
+
+  .cube-halo-warm {
+    left: 86%;
+    top: 26%;
+  }
+
+  .cube-dust {
+    opacity: 0.5;
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --head-h: 48px; /* 移动端导航隐藏，行高由 logo / burger（46-48px）决定 */
+  }
+
+  .hero-mark {
+    font-size: 30vw;
+  }
+}
+
+@media (max-width: 420px) {
+  .hero-mark {
+    font-size: 34vw;
+  }
+
+  .hero-card {
+    --hc-pad: 14px;
+  }
+
+  .hero-bar .hb-tag,
+  .hero-bar .hb-mid { /* 文本已隐藏后 hb-mid 会剩一颗孤点，整段收掉 */
+    display: none;
+  }
+
+  .cube-layer {
+    --cube: clamp(78px, 20vw, 104px);
+  }
+
+  .cube-stage {
+    right: -11%;
+    top: 9%;
+  }
+}
+
+/* ==================================================================
    Mobile menu
    ================================================================== */
 
@@ -618,7 +1469,8 @@ button {
 
 .sheet {
   position: fixed;
-  top: clamp(72px, 12vh, 96px);
+  /* v0.3.0：顶栏吸顶后菜单要避让 —— 用 --head-h 算，否则菜单顶部会被 z50 的顶栏压住 */
+  top: calc(clamp(16px, 2.4vh, 28px) + var(--head-h) + clamp(8px, 1.5vh, 14px));
   left: 50%;
   z-index: 41;
   width: min(320px, calc(100vw - 32px));
@@ -709,16 +1561,34 @@ body.menu-open {
 
 .anim {
   opacity: 0;
-  transform: translateY(22px) scale(0.98);
+  transform: translateY(26px) scale(0.98);
   filter: blur(6px);
-  animation: reveal 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: reveal 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   animation-delay: var(--d, 0s);
 }
 
 .site-header.anim {
   animation-name: slideDown;
-  animation-duration: 0.7s;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-duration: 0.8s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 眉题：tracking-in（字距展开），比整体上浮更有「编排感」 */
+.hero-eyebrow.anim {
+  animation-name: trackingIn;
+  animation-duration: 0.95s;
+}
+
+/* 右侧今日概览卡：缩放 + 上浮聚焦 */
+.hero-card.anim {
+  animation-name: cardRise;
+  animation-duration: 1.05s;
+}
+
+/* 底部四格统计：统一走 cardRise（缩放聚焦），与概览卡同族 */
+.stats .stat.anim {
+  animation-name: cardRise;
+  animation-duration: 0.85s;
 }
 
 @keyframes reveal {
@@ -755,10 +1625,57 @@ body.menu-open {
   }
 }
 
-@keyframes headlineFade {
+/* v0.8 首屏主标题：遮罩揭开（clip-path 自下而上）+ 位移 + scaleY 压缩 + 字距归位，
+   缓动 cubic-bezier(0.16,1,0.3,1) —— 快进慢落、无弹跳，正是「高级 agency」的手感。 */
+@keyframes heroLineIn {
+  0% {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(0.42em) scaleY(1.24);
+    letter-spacing: -0.1em;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  58% {
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0) scaleY(1.05);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0) scaleY(1);
+    letter-spacing: -0.04em;
+    opacity: 1;
+  }
+}
+
+/* 眉题：字距从收紧展开（tracking-in），比普通淡入更「编排感」 */
+@keyframes trackingIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    letter-spacing: 0.36em;
+    filter: blur(4px);
+  }
   to {
     opacity: 1;
     transform: none;
+    letter-spacing: 0.16em;
+    filter: blur(0);
+  }
+}
+
+/* 卡片：轻微缩放 + 上浮聚焦 */
+@keyframes cardRise {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.96);
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
   }
 }
 
@@ -806,7 +1723,7 @@ body.menu-open {
 .plan {
   position: relative;
   z-index: 2;
-  background: #000;
+  background: transparent; /* v0.4：让全局 CRT 画面透出来（原为 #000 实底） */
   padding: clamp(48px, 9vh, 104px) clamp(14px, 3vw, 32px) clamp(40px, 7vh, 80px);
 }
 
@@ -815,17 +1732,85 @@ body.menu-open {
   margin: 0 auto;
 }
 
+/* v0.8：滚动 reveal 升级 —— 由「普通淡入」改为「上浮 + 聚焦」，
+   且用 --d 做卡片 stagger（--d 由 initReveals 按 section 内 DOM 顺序写入）。
+   只用 transform/opacity/filter（合成层友好），不碰 clip-path，避免裁掉模块卡的辉光。 */
 .reveal {
   opacity: 0;
-  transform: translateY(26px);
-  transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
-  will-change: opacity, transform;
+  transform: translateY(44px);
+  filter: blur(5px);
+  transition: opacity 0.95s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s),
+    transform 0.95s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s),
+    filter 0.95s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s);
+  will-change: opacity, transform, filter;
 }
 
 .reveal.is-in {
   opacity: 1;
   transform: none;
+  filter: blur(0);
+}
+
+/* v0.8：超大英文模块标题（ORCHESTRATE/SYSTEM/VAULT/SIGNAL/REFLECT）。
+   描边淡紫、无填充，绝对定位沉在 section 顶部、轻微出血 —— 滚动时大幅揭开进场，
+   再叠加 rAF 节流的轻 parallax（translate 属性，不与 transform 抢）。 */
+.sec-giant {
+  position: absolute;
+  top: -0.18em;
+  left: -0.06em;
+  z-index: 0;
+  font-family: var(--font-display);
+  font-size: clamp(46px, 10vw, 148px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  color: rgba(139, 124, 255, 0.05); /* 微填充：0.16 描边实测在暗场上几乎不可见，提到 0.3 并给一点体 */
+  -webkit-text-stroke: 1px rgba(139, 124, 255, 0.3);
+  pointer-events: none;
+  user-select: none;
+  will-change: translate; /* parallax 写在这里，与 .gi 的 transform 互不干扰 */
+}
+
+/* 遮罩/位移放在内层 .gi 上 —— 外层保持「不剪」：IntersectionObserver 按
+   可见面积算交叉率，零面积剪裁（inset 0 0 100%）会让它永远不触发（踩过）。 */
+.sec-giant .gi {
+  display: block;
+  opacity: 0;
+  clip-path: inset(0 0 100% 0);
+  transform: translateY(0.6em);
+  transition: opacity 1s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s),
+    clip-path 1.15s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s),
+    transform 1.15s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s);
+  will-change: opacity, transform, clip-path;
+}
+
+.sec-giant.is-in .gi {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+  transform: translateY(0);
+}
+
+/* 让 section 成为大标题的定位容器；标题与内容压在其上 */
+.plan,
+.tracks,
+.repo,
+.insight,
+.journal {
+  position: relative;
+}
+
+.plan-wrap,
+.block-head,
+.repo-block,
+.stat-block,
+.metric,
+.track-tools,
+.track-tabs,
+.track-panels,
+.journal-tools,
+.journal-list {
+  position: relative;
+  z-index: 1;
 }
 
 /* ---- section chrome ---- */
@@ -2358,24 +3343,35 @@ body.menu-open {
 /* short viewports: tighten the hero so one screen still holds */
 @media (max-height: 700px) {
   .trust {
-    margin-bottom: 12px;
+    margin-top: 10px;
   }
 
   .subhead {
     margin-top: 12px;
   }
 
-  .cta {
+  .cta-row {
     margin-top: 16px;
   }
 
-  .scroll-cue {
-    margin-top: 6px;
+  .cta {
+    margin-top: 0;
+  }
+
+  .hero-card {
+    --hc-pad: 14px;
+    gap: 8px;
+  }
+
+  .stats {
+    gap: 8px;
   }
 }
 
 @media (max-height: 600px) {
-  .trust {
+  /* v0.3.0: trust 现在承载真实连续打卡数据，优先保它；改藏装饰性富余（卡与水印） */
+  .hero-card,
+  .hero-mark {
     display: none;
   }
 }
@@ -4082,9 +5078,11 @@ select.mf-input option {
   color: rgba(255, 255, 255, 0.34);
 }
 
+/* v0.5：这是「筛选开关已生效」的 UI 状态，不是完成度语义 → 薄荷绿改紫，
+   与「紫 = 可点 / 生效」同一家族。打卡与热力图的薄荷绿语义不受影响。 */
 .tt-btn[aria-pressed='true'] {
-  background: rgba(126, 224, 174, 0.16);
-  border-color: rgba(126, 224, 174, 0.45);
+  background: rgba(139, 124, 255, 0.2);
+  border-color: rgba(139, 124, 255, 0.55);
   color: #fff;
 }
 
@@ -4230,6 +5228,532 @@ select.mf-input option {
 }
 
 /* ==================================================================
+   v0.5 — 按钮配色统一：所有按钮都带紫，透明 / 描边按钮用「淡紫」
+   用户口径：所有按钮都要有紫色的效果，包括透明的；透明按钮以淡紫色来。
+   六条规则（只改颜色，不动任何尺寸与布局）：
+     ① 实底主操作 → 紫实底 + 白字
+     ② 透明 / 描边 / 低透明底（二级操作与控件）→ 淡紫：
+        底 rgba(139,124,255,.07) + 边 rgba(139,124,255,.42) + 字 #cdc2ff
+     ③ 图标按钮 → hover 紫底 / 紫环
+     ④ 数据格（日历格 / 热力图格 / 时段勾选）→ 底色承载语义，只让 hover 走紫
+     ⑤ 选中态（.is-on / .is-active / :checked / [aria-pressed=true]）保持
+        「白底黑字」或「薄荷绿完成度」，不与「紫 = 可点」抢读法
+     ⑥ 危险操作（.tt-danger / .mb-danger / .lib-x / .pd-tag-x / .note-del）
+        保持红系，不紫化
+   ================================================================== */
+
+/* ① 实底主操作：统一紫实底 + 白字（原先是白底黑字，与首屏主按钮不同族） */
+.note-add,
+.mb-primary,
+.sheet-signin,
+.gal-dl {
+  background: var(--accent-ink);
+  border-color: var(--accent-ink);
+  color: #ffffff;
+}
+
+/* ② 透明 / 描边按钮的静态外观 = 淡紫 */
+.cta-ghost,
+.gf-chip,
+.pd-chip,
+.pd-add-btn,
+.mb-ghost,
+.lib-btn,
+.tt-btn:not(.tt-danger),
+.te,
+.st-btn,
+.track-add,
+.step-add,
+.sheet-a,
+.pd-wk,
+.jr,
+.modal-x {
+  border-color: rgba(139, 124, 255, 0.42);
+  background: rgba(139, 124, 255, 0.07);
+  color: #cdc2ff; /* 近黑底 9.9:1 */
+}
+
+/* ==================================================================
+   v0.3.0 — 悬浮换色（统一收口）
+   只对「支持 hover 的精确指针设备」生效：main.js 探测后给 <html> 挂 .can-hover。
+   触摸设备不挂 → 点完不会粘住假悬浮态；无 JS 时静默降级（只少这一层换色）。
+   规矩：① 状态态一律用 :not() 保护（.is-active / .is-on）；
+        ② 浅底上的文字橙用 --accent-ink（4.54:1），色块底用 --accent-press（白字 ≈4.8:1）；
+        ③ 热力图格子只描边不改底色（底色承载「完成度深浅」语义）。
+   ================================================================== */
+
+/* ---- 补齐会「硬跳」的过渡声明（只补 transition，不改任何静态颜色） ---- */
+html.can-hover .logo-btn {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+}
+html.can-hover .nav-link {
+  transition: opacity 0.25s ease, color 0.25s ease;
+}
+html.can-hover .cta {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease,
+    background-color 0.3s ease, color 0.3s ease;
+}
+html.can-hover .cta-orb {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.25s ease,
+    color 0.25s ease;
+}
+html.can-hover .hc-cta {
+  transition: color 0.2s ease;
+}
+html.can-hover .note-add {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease,
+    background-color 0.25s ease, color 0.25s ease;
+}
+html.can-hover .sheet-link {
+  transition: opacity 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+}
+html.can-hover .sheet-signin {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+html.can-hover .gal-thumb,
+html.can-hover .lib-thumb {
+  transition: box-shadow 0.2s ease;
+}
+html.can-hover .hm-cell {
+  transition: transform 0.15s ease, outline-color 0.15s ease;
+}
+
+/* ---- 首屏（浅色封面） ---- */
+html.can-hover .logo-btn:hover {
+  box-shadow: 0 0 0 2px rgba(139, 124, 255, 0.6), var(--nav-shadow);
+}
+
+html.can-hover .nav-link:not(.is-active):hover {
+  color: #ffffff; /* v0.7：胶囊转透明淡紫后，原 --accent-ink 深紫在暗底上看不清 → 悬浮提亮为白 */
+  opacity: 0.95;
+}
+
+html.can-hover .cta:hover {
+  background: var(--accent-press);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(124, 77, 255, 0.45), 0 12px 30px rgba(124, 77, 255, 0.4);
+}
+
+html.can-hover .cta:hover .cta-orb {
+  /* 主按钮整块提亮后，淡紫圆跟着提到纯白（否则紫底上的紫圆会「消失」） */
+  background: #ffffff;
+  color: var(--accent-ink);
+}
+
+html.can-hover .cta-ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(139, 124, 255, 0.55);
+}
+
+html.can-hover .hc-cta:hover {
+  color: #b9aeff; /* 深底上 hover 往亮处走（淡蓝紫 9:1+） */
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+html.can-hover .burger:hover {
+  background: #ffffff; /* v0.4：胶囊底已是反白，hover 往更亮走 */
+}
+
+/* ---- 深色区 ---- */
+html.can-hover .note-add:hover {
+  background: var(--accent-press);
+  color: #fff;
+  box-shadow: 0 0 22px rgba(124, 77, 255, 0.42);
+}
+
+/* 移动菜单是白底 → 走浅色口径（墨系橙字 + 浅灰底），不能套深色区那套「提亮 + 纯白字」 */
+html.can-hover .sheet-link:not(.is-active):hover {
+  color: var(--accent-ink);
+  background: rgba(20, 20, 20, 0.05);
+  opacity: 1;
+}
+
+html.can-hover .sheet-signin:hover {
+  background: var(--accent-press);
+  color: #fff;
+}
+
+/* 图纸 / 资料缩略图：v0.5 起内描边统一走紫（原为薄荷绿，与「紫 = 可点」不一致）
+   薄荷绿只留给完成度 / 打卡这类状态语义 */
+html.can-hover .gal-thumb:hover,
+html.can-hover .lib-thumb:hover {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* 按周 / 按月：只给非选中态上紫，绝不覆盖 .is-on 的白底黑字 */
+html.can-hover .seg-btn:not(.is-on):hover {
+  background: rgba(139, 124, 255, 0.18);
+  color: #fff;
+}
+
+/* 热力图格：只加描边 + 轻微放大，绝不改底色（底色 = 完成度深浅）。
+   用 outline 而非 box-shadow —— is-today / is-sel 的状态环用的是 box-shadow，不冲突 */
+html.can-hover .hm-cell:hover {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 0.5px;
+  transform: scale(1.15);
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- v0.5 统一紫化：hover 一律走紫（覆盖文件前面各处的白 / 灰 hover） ---- */
+
+/* 二级操作（透明 / 描边 / 低透明底）：淡紫 → 更实的紫 */
+html.can-hover .cta-ghost:hover,
+html.can-hover .gf-chip:not(.is-on):hover,
+html.can-hover .pd-chip:hover,
+html.can-hover .pd-add-btn:hover,
+html.can-hover .mb-ghost:hover,
+html.can-hover .lib-btn:hover,
+html.can-hover .tt-btn:not(.tt-danger):hover,
+html.can-hover .te:hover:not(:disabled),
+html.can-hover .st-btn:hover:not(:disabled),
+html.can-hover .track-add:hover,
+html.can-hover .step-add:hover,
+html.can-hover .sheet-a:hover,
+html.can-hover .pd-wk:hover,
+html.can-hover .jr:hover,
+html.can-hover .modal-x:hover {
+  background: rgba(139, 124, 255, 0.18);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* 实底主操作：提亮一档（白字 4.81:1，达 AA） */
+html.can-hover .note-add:hover,
+html.can-hover .mb-primary:hover,
+html.can-hover .sheet-signin:hover,
+html.can-hover .gal-dl:hover {
+  background: var(--accent-press);
+  border-color: var(--accent-press);
+  color: #fff;
+}
+
+/* 纯文字按钮：hover 转紫字 */
+html.can-hover .scroll-cue:hover,
+html.can-hover .res-link:hover,
+html.can-hover .cm-head:hover,
+html.can-hover .jw-head:hover {
+  color: var(--accent);
+}
+
+/* 图标按钮：hover 紫底（汉堡的深色横条要跟着翻白，否则紫底压深条看不清） */
+html.can-hover .lb-x:hover,
+html.can-hover .bt-close:hover {
+  background: rgba(139, 124, 255, 0.22);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+html.can-hover .burger:hover {
+  background: var(--accent-press);
+}
+
+html.can-hover .burger:hover span {
+  background: #ffffff;
+}
+
+/* 数据格：底色承载语义（完成度 / 学习日 / 休息日）→ 只让 hover 走紫 */
+html.can-hover .cal-cell:hover {
+  background: rgba(139, 124, 255, 0.16);
+  border-color: rgba(139, 124, 255, 0.5);
+}
+
+html.can-hover .tl-check:hover,
+html.can-hover .step-check:hover {
+  border-color: var(--accent);
+}
+
+html.can-hover .tl-item:hover {
+  background: rgba(139, 124, 255, 0.08);
+}
+
+html.can-hover .track-tab:not(.is-active):hover {
+  background: rgba(139, 124, 255, 0.1);
+  border-color: rgba(139, 124, 255, 0.32);
+}
+
+/* 键盘可达：与主按钮换色配对的焦点环 */
+.cta:focus-visible,
+.sheet-signin:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ==================================================================
+   v0.7 — 内容呈现 / 可读性 / 视觉层级 / 移动端 / 可访问性
+   （10 项体验改造的样式部分；交互与结构见 index.html / main.js）
+   ================================================================== */
+
+/* ---- 首屏使用路径四步 ---- */
+.hero-steps {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+}
+.hero-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+}
+.hero-steps b {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* ---- 指标图标改 SVG 后的尺寸（原来用点阵字体字形） ---- */
+.stat-icon svg,
+.metric-icon svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+}
+
+/* ---- 今日待办（计划板顶部快捷打卡） ---- */
+.today-todo {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+}
+.todo-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.todo-head > span:first-child { font-weight: 600; font-size: 14px; color: #fff; }
+.todo-prog { font-size: 12px; color: var(--accent-soft); font-weight: 600; font-variant-numeric: tabular-nums; }
+.todo-all { margin-left: auto; padding: 6px 13px; border-radius: 999px; border: 1px solid rgba(139, 124, 255, 0.5); background: rgba(139, 124, 255, 0.12); color: #cdc2ff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.todo-all:hover { background: rgba(139, 124, 255, 0.22); color: #fff; }
+.todo-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.todo-item { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03); }
+.todo-item.is-done { opacity: 0.55; }
+.todo-check { width: 20px; height: 20px; accent-color: #7ee0ae; cursor: pointer; flex: 0 0 auto; }
+.todo-time { font-size: 12px; color: var(--accent-soft); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.todo-name { font-size: 12.5px; color: rgba(255, 255, 255, 0.86); }
+.todo-empty { margin: 0; font-size: 13px; color: var(--ink-faint); }
+
+/* ---- 空状态引导按钮 ---- */
+.empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 124, 255, 0.5);
+  background: rgba(139, 124, 255, 0.12);
+  color: #cdc2ff;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.empty-cta:hover { background: rgba(139, 124, 255, 0.24); color: #fff; }
+.gal-empty .empty-cta { margin: 12px 0 0; }
+
+/* ---- 热力图星期参照（左列 一/三/五） ---- */
+.hm-wrap { display: flex; gap: 6px; width: max-content; }
+.hm-rows { display: grid; grid-template-rows: repeat(7, 11px); gap: 3px; }
+.hm-rows i { width: 11px; height: 11px; font-style: normal; font-size: 9px; line-height: 11px; text-align: center; color: var(--ink-faint); display: block; }
+.hm-rows i:nth-child(1) { grid-row: 2; }  /* 一 */
+.hm-rows i:nth-child(2) { grid-row: 4; }  /* 三 */
+.hm-rows i:nth-child(3) { grid-row: 6; }  /* 五 */
+
+/* ---- 趋势图：数据说明 + 基线 ---- */
+.trend-note { margin: 8px 0 6px; font-size: 11px; color: var(--ink-faint); }
+.trend { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+
+/* ---- 键盘焦点环（统一补齐） ---- */
+.tt-btn:focus-visible, .gf-chip:focus-visible, .pd-chip:focus-visible, .pd-add-btn:focus-visible,
+.mb-ghost:focus-visible, .mb-primary:focus-visible, .mb-danger:focus-visible, .lib-btn:focus-visible,
+.cal-cell:focus-visible, .hm-cell:focus-visible, .jw-head:focus-visible, .cm-head:focus-visible,
+.seg-btn:focus-visible, .track-add:focus-visible, .step-add:focus-visible, .nav-link:focus-visible,
+.logo-btn:focus-visible, .burger:focus-visible, .cta-ghost:focus-visible, .scroll-cue:focus-visible,
+.hc-cta:focus-visible, .sheet-link:focus-visible, .note-add:focus-visible, .track-tab:focus-visible,
+.modal-x:focus-visible, .lb-x:focus-visible, .pd-wk:focus-visible, .te:focus-visible,
+.st-btn:focus-visible, .bt-close:focus-visible, .jr:focus-visible, .lib-x:focus-visible,
+.pd-tag-x:focus-visible, .note-del:focus-visible, .tl-check:focus-visible, .step-check:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- 日历选中态：加非颜色线索（左竖条），不靠边框亮度区分 ---- */
+.cal-cell.is-sel { position: relative; }
+.cal-cell.is-sel::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ---- 辅助文字对比度提升（低对比度那批统一改 --ink-faint） ---- */
+.goal-hint, .res-count, .tp-eyebrow, .note-hint, .sheet-hint, .save-hint, .pd-tip,
+.track-tools-hint, .step-meta, .eyebrow, .rb-count, .res-by, .dp-kicker, .review-hint, .cm-stat {
+  color: var(--ink-faint);
+}
+
+/* ---- 过小的字号统一抬一档 ---- */
+.cc-tag, .cm-grid .cc-tag { font-size: 10.5px; }
+.trend-k { font-size: 10.5px; }
+.step-phase, .note-item time, .cm-week span, .gal-mode, .lib-kind, .scroll-cue { font-size: 11px; }
+
+/* ---- 区块间距分层（数据中心最重，给「层级差」而非一刀切 56px） ---- */
+.insight { margin-top: 72px; }
+.repo { margin-top: 64px; }
+
+/* ---- 移动端：触摸目标放大（≥44 为主，热力图这类纯浏览格放宽到 14px） ---- */
+@media (max-width: 720px) {
+  .hm-cell { width: 14px; height: 14px; }
+  .hm { grid-auto-columns: 14px; grid-template-rows: repeat(7, 14px); }
+  .hm-rows { grid-template-rows: repeat(7, 14px); }
+  .hm-rows i { width: 14px; height: 14px; line-height: 14px; }
+  .tl-check { width: 28px; height: 28px; border-radius: 8px; }
+  .step-check { width: 28px; height: 28px; }
+  .gal-dl { width: 36px; height: 36px; border-radius: 11px; }
+  .pd-tag-x { width: 28px; height: 28px; }
+  .gf-chip, .seg-btn { min-height: 34px; padding-top: 8px; padding-bottom: 8px; }
+  .tt-btn { min-height: 36px; }
+  .hc-cta { display: inline-block; padding: 8px 4px; }
+  .todo-check { width: 24px; height: 24px; }
+}
+
+/* ==================================================================
+   v0.6 — 所有模块卡：BorderGlow 边缘辉光
+   参考 reactbits 的 <BorderGlow />，**零依赖手写移植**：不用 React、
+   不引任何库、不发请求，仍只有三个源文件。
+
+   与原生组件的两处刻意差异（都有原因）：
+     ① 不注入 <span class="edge-light"> —— 本站一半的卡片是 JS 模板
+        innerHTML 重渲染出来的（40 张图纸卡 / 12 个月块 / 资料卡…），
+        注入的子节点会在下一次 render 时丢失。外圈辉光改由卡片自己的
+        ::before 承担，于是**零 DOM 改动**。
+     ② 因此只剩两个伪元素：::before 外圈辉光 / ::after 网格描边环，
+        省掉原组件的「soft-light 网格填充」—— 它在本站近黑卡面上
+        视觉贡献极小，却要为每张卡多注入一个节点。
+
+   交互：--edge-proximity（0–100）与 --cursor-angle 由 main.js 的**一个**
+        委托 pointermove 监听写进卡片内联样式；触摸设备与
+        prefers-reduced-motion 下不绑定 → 辉光恒为 0、从不出现。
+
+   目标集合（改这一行即可增减「模块」）：
+   ================================================================== */
+:is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+    .goal, .res, .jr, .gal-card, .lib-card, .track-panel) {
+  position: relative;   /* 伪元素的定位基准（这些卡原本是 static） */
+  isolation: isolate;   /* 把 z-index:-1 的伪元素关在本卡内，不被区块底裁掉 */
+
+  /* ---- 辉光几何与配色：每张卡都能单独覆写 ---- */
+  --glow-color-h: 249;      /* = --accent #8b7cff 的色相 */
+  --glow-color-s: 100%;
+  --glow-color-l: 74%;
+  --glow-padding: 28px;     /* 外圈辉光向外扩多少 */
+  --cone-spread: 25;        /* 跟随鼠标的扇形展开度 */
+  --edge-proximity: 0;      /* ← JS 写入：0 表示指针在卡片中心 */
+  --cursor-angle: 45deg;    /* ← JS 写入：指针相对卡片中心的角度 */
+  --glow-intensity: calc(var(--edge-proximity) / 100);
+  /* 指针越靠边，颜色越饱和（原组件的 colorSensitivity） */
+  --color-sensitivity: calc(var(--glow-intensity) * 0.75 + 0.25);
+  --gs: calc(var(--glow-color-s) * var(--color-sensitivity));
+  --gl: calc(var(--glow-color-l) * var(--color-sensitivity));
+  --glow-color: hsl(var(--glow-color-h) var(--gs) var(--gl) / 1);
+  --glow-color-60: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.6);
+  --glow-color-50: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.5);
+  --glow-color-40: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.4);
+  --glow-color-30: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.3);
+  --glow-color-20: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.2);
+  --glow-color-10: hsl(var(--glow-color-h) var(--gs) var(--gl) / 0.1);
+  /* 网格渐变：原组件用「紫 / 粉 / 天蓝」三色；本站统一在紫系内做三档温度，
+     既保留网格渐变的流动感，又不引入与站内色系打架的新色相 */
+  --glow-mesh:
+    radial-gradient(at 80% 55%, #c084fc 0px, transparent 50%),
+    radial-gradient(at 69% 34%, #8b7cff 0px, transparent 50%),
+    radial-gradient(at 8% 6%, #e879f9 0px, transparent 50%),
+    radial-gradient(at 41% 38%, #c084fc 0px, transparent 50%),
+    radial-gradient(at 86% 85%, #8b7cff 0px, transparent 50%),
+    radial-gradient(at 82% 18%, #cbb8ff 0px, transparent 50%),
+    radial-gradient(at 25% 75%, #a78bfa 0px, transparent 50%),
+    linear-gradient(#8b7cff 0 100%);
+}
+
+/* 两层都是「指针靠边才出现」，静息态完全不可见 */
+:is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+    .goal, .res, .jr, .gal-card, .lib-card, .track-panel)::before,
+:is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+    .goal, .res, .jr, .gal-card, .lib-card, .track-panel)::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;   /* 绝不抢卡片自身的点击 */
+  opacity: var(--glow-intensity);
+  transition: opacity 0.3s ease-out;
+}
+
+/* ① 外圈辉光：扇形 mask 跟着指针转。
+   注意 inset 必须是 0 —— 实测用负 inset 向外扩（inset: -28px）会让 ::before
+   撑大文档宽度，390px 下纵向溢出 14px（正好是「卡片全宽 + 外扩 28 − 容器内边距 14」）。
+   外圈那圈光改用 box-shadow 画：**阴影不参与滚动溢出计算**，所以不会被算进去。 */
+:is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+    .goal, .res, .jr, .gal-card, .lib-card, .track-panel)::before {
+  inset: 0;
+  box-shadow:
+    inset 0 0 0 1px var(--glow-color),
+    inset 0 0 8px 0 var(--glow-color-60),
+    inset 0 0 18px 0 var(--glow-color-40),
+    0 0 0 1px var(--glow-color-40),
+    0 0 calc(var(--glow-padding) * 0.45) 0 var(--glow-color-60),
+    0 0 calc(var(--glow-padding) * 0.85) 0 var(--glow-color-50),
+    0 0 calc(var(--glow-padding) * 1.15) 0 var(--glow-color-30);
+  mix-blend-mode: plus-lighter;
+  -webkit-mask-image: conic-gradient(from var(--cursor-angle) at 50% 50%,
+    black 0%, transparent calc(var(--cone-spread) * 1%),
+    transparent calc(100% - var(--cone-spread) * 1%), black 100%);
+  mask-image: conic-gradient(from var(--cursor-angle) at 50% 50%,
+    black 0%, transparent calc(var(--cone-spread) * 1%),
+    transparent calc(100% - var(--cone-spread) * 1%), black 100%);
+}
+
+/* ② 网格描边环：标准的「渐变描边」配方 —— 双层 mask 相减（content-box ⊕ 全尺寸 = 1px 环）。
+   两个坑都踩过，写在这里免得再犯：
+     ⓐ 必须用 `mask` **简写**。`content-box` 是 mask-clip 的值，`mask-image` 长写不接受它，
+        整条声明会被丢弃 → 遮罩完全失效 → 网格渐变铺满整卡、卡内文字被洗掉（实测如此）。
+     ⓑ 三层 mask（锥形 ∩ 全尺寸 \ content-box）在本机 Edge 上没按预期相减，同样会铺满。
+   所以这里只放两层、不做锥形；方向性只由 ::before 的外圈光晕承担（它是单层锥形 mask，稳定）。 */
+@supports (mask-composite: exclude) {
+  :is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+      .goal, .res, .jr, .gal-card, .lib-card, .track-panel)::after {
+    inset: -1px;      /* 正好压在卡片自己那 1px 边框上 */
+    padding: 1px;     /* 环宽 */
+    background: var(--glow-mesh);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+  }
+}
+
+@supports not (mask-composite: exclude) {
+  :is(.hero-card, .metric, .stat-block, .repo-block, .cal-month, .day-panel,
+      .goal, .res, .jr, .gal-card, .lib-card, .track-panel)::after {
+    inset: -1px;
+    border: 1px solid var(--glow-color);
+  }
+}
+
+/* ==================================================================
    Reduced motion
    ================================================================== */
 
@@ -4259,19 +5783,74 @@ select.mf-input option {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
-    color: #ffffff;
+    clip-path: none !important; /* v0.8：遮罩揭开在 reduce 下直接呈现完整字 */
+    letter-spacing: -0.04em !important;
+    /* v0.5：这里**不要**写 color。本块在文件末尾，`.headline .line` 与
+       Region 1.5 的 `.headline .l1/.l2` 同权重 → 写在这里会反超两级紫
+       （实测 reduce 下标题会掉成近白 rgb(242,242,240)）。颜色交给上面继承。 */
   }
 
   .subhead {
-    opacity: 0.8 !important;
+    opacity: 1 !important; /* v0.3.0: 浅底低透明灰会发虚 */
+  }
+
+  /* v0.3.0 新增动效的 reduce 分支 */
+  .cta-orb,
+  .hc-bar i {
+    transition: none !important;
   }
 
   .cue-arrow {
     animation: none !important;
   }
 
+  /* v0.4 主视觉：减少动效时给「静止的棱镜 + 保留紫色光晕」——
+     进场淡入也取消，直接呈现一个固定姿态的展品 */
+  .cube-layer {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .cube-sway,
+  .cube-float,
+  .cube-spin-y,
+  .cube-spin-x,
+  .cube-dust {
+    animation: none !important;
+  }
+
+  .cube-sway {
+    transform: rotateZ(-1.2deg);
+  }
+
+  .cube-float {
+    transform: translateY(0);
+  }
+
+  .cube-spin-y {
+    transform: rotateY(26deg);
+  }
+
+  .cube-spin-x {
+    transform: rotateX(-15deg);
+  }
+
   .reveal {
     opacity: 1 !important;
+    transform: none !important;
+    filter: none !important; /* v0.8：reveal 基态有 blur(5px)，reduce 下必须清掉 */
+    transition: none !important;
+  }
+
+  /* v0.8：超大英文模块标题在 reduce 下静止呈现（不再揭开/视差） */
+  .sec-giant {
+    translate: none !important;
+  }
+
+  .sec-giant .gi {
+    opacity: 1 !important;
+    clip-path: none !important;
     transform: none !important;
     transition: none !important;
   }
@@ -4308,6 +5887,20 @@ select.mf-input option {
   .lib-x,
   .lib-drop,
   .lib-btn,
+  /* v0.3.0 新增 hover 换色涉及的过渡，一并纳入减动效（否则 reduce 下仍会过渡） */
+  .nav-link,
+  .cta-ghost,
+  .burger,
+  .hc-cta,
+  .note-add,
+  .sheet-link,
+  .sheet-signin,
+  .gal-thumb,
+  .lib-thumb,
+  .seg-btn,
+  .hm-cell,
+  .site-header,
+  .cube-stage,
   .lb-x {
     transition: none !important;
   }

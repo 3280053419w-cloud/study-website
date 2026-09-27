@@ -12,6 +12,11 @@
 (function () {
   'use strict';
 
+  /* 发布版开关：GitHub Pages 的「空白模板」发布版设为 true —— 首访不带任何演示数据
+     （学习日/休息日作息、学习模块、40 张图纸全空，由用户自己自定义）。
+     本地开发版保持 false（出厂带 4 条学习线 + 作息 + 40 张图纸的演示数据）。 */
+  var EMPTY_TEMPLATE = false;
+
   /* ----------------------------------------------------------------
      Data — 计划周期由 state.plan.period 决定，日历 / 进度 / 时间轴都从它推导。
      这里没有任何写死的日期：默认周期就是「今年 1 月 1 日 → 12 月 31 日」，
@@ -214,8 +219,8 @@
   function defaultPlan() {
     return {
       period: thisYearPeriod(),
-      slots: clone(DEFAULT_SLOTS),
-      tracks: clone(DEFAULT_TRACKS)
+      slots: EMPTY_TEMPLATE ? { study: [], rest: [] } : clone(DEFAULT_SLOTS),
+      tracks: EMPTY_TEMPLATE ? [] : clone(DEFAULT_TRACKS)
     };
   }
 
@@ -256,7 +261,9 @@
   /* 补齐结构 + 保证 id / sid 唯一可用。任何来自 localStorage 或导入的计划都要先过这里。 */
   function normalizePlan() {
     if (!state.plan || typeof state.plan !== 'object') state.plan = defaultPlan();
-    if (!Array.isArray(state.plan.tracks) || !state.plan.tracks.length) {
+    if (!Array.isArray(state.plan.tracks)) state.plan.tracks = [];
+    /* 发布版（EMPTY_TEMPLATE）就是要「空模块」：不要在这里把空 tracks 重新填回出厂模板 */
+    if (!state.plan.tracks.length && !EMPTY_TEMPLATE) {
       state.plan.tracks = clone(DEFAULT_TRACKS);
     }
 
@@ -649,125 +656,379 @@
   }
 
   /* ----------------------------------------------------------------
-     Region 1 — 本地 Canvas 点阵背景
-     原来是 CloudFront 上的背景视频，现在改成纯本地绘制：
-     黑底 + 一片缓慢呼吸的点阵，从中心向外走一圈环形波。
-     - 零外部请求、零额外体积，断网可用
-     - prefers-reduced-motion: reduce → 只画一帧静态点阵，不跑动画
-     - 标签页切到后台 / 首屏滚出视野 → 暂停，省电
+     Region 1 — 全局 CRT 背景（纯本地 WebGL，零依赖）
+     移植自 React Bits 的 <CRTWarp />：那边用 React + three.js，实际只干了
+     「画一个全屏四边形 + 跑一段片元着色器」两件事。这里用原生 WebGL 逐字复刻
+     同一段 shader，于是不需要框架、不需要 three.js、不发任何请求 —— 仍是三个文件。
+     性能预算（本项目自己的规矩，组件原版没有）：
+     - 渲染分辨率按 RENDER_SCALE 缩放，CSS 放大回全屏（省填充率）
+     - 帧率上限 FPS=30；dpr 上限 1
+     - prefers-reduced-motion: reduce → 只渲染一帧静态画面
+     - 标签页切到后台 → 暂停
      ---------------------------------------------------------------- */
-  function initDotMatrix() {
-    var cv = el('bgCanvas');
+  var CRT_VERT_SHADER = `
+attribute vec2 aPos;
+attribute vec2 aUv;
+varying vec2 vUv;
+
+void main() {
+  vUv = aUv;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+  /* 与 CRTWarp 组件里的 fragmentShader 逐字一致（一个字都没改） */
+  var CRT_FRAG_SHADER = `
+precision highp float;
+
+varying vec2 vUv;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec3 uColor;
+uniform vec3 uBackgroundColor;
+uniform float uCurvature;
+uniform float uScanlineStrength;
+uniform float uScanlineFrequency;
+uniform float uWaveAmplitude;
+uniform float uWaveFrequency;
+uniform float uBloom;
+uniform float uBloomRadius;
+uniform float uNoise;
+uniform float uVignette;
+uniform float uBrightness;
+uniform float uPixelation;
+uniform float uRgbShift;
+uniform vec2 uPointer;
+uniform float uMouseStrength;
+uniform float uMouseReact;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+vec2 crtCurve(vec2 uv, float radius) {
+  vec2 p = (uv - 0.5) * 2.0;
+  float safeRadius = max(radius, 1.415);
+  float cornerScale = safeRadius / sqrt(max(safeRadius * safeRadius - 2.0, 0.001));
+  p = safeRadius * p / sqrt(max(safeRadius * safeRadius - dot(p, p), 0.001));
+  p /= cornerScale;
+  return p * 0.5 + 0.5;
+}
+
+float referencePlasma(vec2 uv, float t) {
+  float frequencyScale = max(uWaveFrequency / 2.2, 0.001);
+  uv = (uv - 0.5) * frequencyScale + 0.5;
+
+  float scanline = 0.5 - 0.5 * cos(uv.y * 3.14159265 * uScanlineFrequency);
+  scanline = mix(1.0, scanline, uScanlineStrength);
+
+  uv *= vec2(80.0, 24.0);
+  uv = ceil(uv);
+  uv /= vec2(80.0, 24.0);
+
+  float amplitude = uWaveAmplitude / 0.28;
+  float field = 0.0;
+  field += 0.7 * sin(0.5 * uv.x + t / 5.0);
+  field += 3.0 * sin(1.6 * uv.y + t / 5.0);
+  field += sin(10.0 * (uv.y * sin(t / 2.0) + uv.x * cos(t / 5.0)) + t / 2.0);
+
+  float cx = uv.x + 0.5 * sin(t / 2.0);
+  float cy = uv.y + 0.5 * cos(t / 4.0);
+  field += 0.4 * sin(sqrt(100.0 * cx * cx + 100.0 * cy * cy + 1.0) + t);
+  field += 0.9 * sin(sqrt(75.0 * cx * cx + 25.0 * cy * cy + 1.0) + t);
+  field -= 1.4 * sin(sqrt(256.0 * cx * cx + 25.0 * cy * cy + 1.0) + t);
+  field += 0.3 * sin(0.5 * uv.y + uv.x + sin(t));
+
+  return scanline * floor(3.0 * (0.5 + 0.499 * sin(field * amplitude))) / 3.0;
+}
+
+void main() {
+  vec2 uv = vUv;
+  if (uPixelation > 1.001) {
+    vec2 cells = max(uResolution / uPixelation, vec2(1.0));
+    uv = (floor(uv * cells) + 0.5) / cells;
+  }
+
+  float curveRadius = 1.1 + 0.42 / max(uCurvature, 0.001);
+  if (uMouseReact > 0.5) {
+    curveRadius *= exp(-uPointer.y * uMouseStrength * 0.4);
+  }
+  vec2 curvedUv = crtCurve(uv, curveRadius);
+  if (uMouseReact > 0.5) {
+    curvedUv.x -= uPointer.x * uMouseStrength * 0.035;
+  }
+
+  float signal = referencePlasma(curvedUv, uTime);
+  float radius = 0.01 * uBloomRadius;
+  float glow = signal * 0.2;
+  glow += referencePlasma(curvedUv + vec2(radius, 0.0), uTime) * 0.12;
+  glow += referencePlasma(curvedUv - vec2(radius, 0.0), uTime) * 0.12;
+  glow += referencePlasma(curvedUv + vec2(0.0, radius), uTime) * 0.12;
+  glow += referencePlasma(curvedUv - vec2(0.0, radius), uTime) * 0.12;
+  glow += referencePlasma(curvedUv + vec2(radius), uTime) * 0.08;
+  glow += referencePlasma(curvedUv - vec2(radius), uTime) * 0.08;
+  glow += referencePlasma(curvedUv + vec2(radius, -radius), uTime) * 0.08;
+  glow += referencePlasma(curvedUv + vec2(-radius, radius), uTime) * 0.08;
+
+  float redSignal = referencePlasma(curvedUv + vec2(uRgbShift, 0.0), uTime);
+  float blueSignal = referencePlasma(curvedUv - vec2(uRgbShift, 0.0), uTime);
+  vec3 channelSignal = vec3(redSignal, signal, blueSignal);
+  vec3 waveColor = uColor * (0.3 + signal * 0.7 + glow * uBloom * 0.65);
+  waveColor += (channelSignal - signal) * 0.42;
+
+  float edge = clamp(1.0 - dot(vUv - 0.5, vUv - 0.5) * 2.0, 0.0, 1.0);
+  float edgeFade = mix(1.0, smoothstep(0.0, 1.0, edge), uVignette);
+  float waveMask = clamp(signal * 0.82 + glow * 0.52, 0.0, 1.0) * edgeFade;
+
+  float grain = hash21(gl_FragCoord.xy + vec2(fract(uTime) * 173.0));
+  waveColor = max(waveColor * uBrightness, vec3(0.0));
+  vec3 color = mix(uBackgroundColor, waveColor, waveMask);
+  color += (grain - 0.5) * uNoise;
+
+  /* ---- v0.5 流光带（本项目新增，非组件原版）------------------------------
+     两道缓慢斜向扫过的低强度柔光，只提供「质感」，不当作光源：
+       A 带：约 80s 扫过一遍，沿带身做蓝→品红的横向色散渐变（呼应棱镜边缘的色散）；
+       B 带：约 160s 反向，更宽更淡，制造纵深。
+     指数（70 / 26）决定带宽：第一版用了 24 / 9，带子铺到半个屏，
+     整屏泛紫、没有「黑底」感 —— 收紧到窄带后才像一条掠过的光。
+     峰值刻意压低：叠加 .crt-veil 的暗纱后，全站最暗的次要文字
+     --muted #8e8e8e 仍需 ≥4.5:1 —— 调大这两个系数前请先跑验收的对比度断言。
+     reduce 下只画 t=0 的一帧 → 光带静止（正好充当「静止的紫色氛围光」）。 */
+  float sweepA = fract(uTime * 0.05);
+  float sweepB = fract(uTime * 0.025 + 0.41);
+  float dA = (vUv.y - mix(-0.34, 1.34, sweepA)) - vUv.x * 0.17;
+  float dB = (vUv.y - mix(1.34, -0.34, sweepB)) + vUv.x * 0.11;
+  float bandA = exp(-dA * dA * 70.0);
+  float bandB = exp(-dB * dB * 26.0);
+  vec3 tintA = mix(vec3(0.42, 0.50, 1.00), vec3(1.00, 0.52, 0.92),
+                   smoothstep(-0.22, 0.22, dA));
+  color += tintA * bandA * 0.34 + vec3(0.78, 0.82, 1.00) * bandB * 0.06;
+
+  gl_FragColor = vec4(max(color, vec3(0.0)), 1.0);
+}
+`;
+
+  function initCrtBackground() {
+    var cv = el('crtCanvas');
     if (!cv || !cv.getContext) return;
 
-    var ctx = cv.getContext('2d');
     var reduce = !!(window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
-    var dots = [];
-    var W = 0, H = 0, cx = 0, cy = 0, maxD = 1;
-    var raf = null, running = false, t0 = 0;
-
-    function build() {
-      var dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = cv.clientWidth || window.innerWidth;
-      H = cv.clientHeight || window.innerHeight;
-      cv.width = Math.round(W * dpr);
-      cv.height = Math.round(H * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      /* 点阵密度：约每 26px 一个点。小屏自动稀一点，避免糊成一片 */
-      var gap = Math.max(16, Math.round(Math.min(W, H) / 27));
-      var cols = Math.ceil(W / gap) + 1;
-      var rows = Math.ceil(H / gap) + 1;
-      var ox = (W - (cols - 1) * gap) / 2;
-      var oy = (H - (rows - 1) * gap) / 2;
-
-      dots = [];
-      for (var r = 0; r < rows; r++) {
-        for (var c = 0; c < cols; c++) {
-          dots.push({ x: ox + c * gap, y: oy + r * gap });
-        }
-      }
-
-      cx = W / 2;
-      cy = H * 0.44;                    /* 与标题重心对齐 */
-      maxD = Math.sqrt(cx * cx + cy * cy) || 1;
+    var gl = null;
+    try {
+      gl = cv.getContext('webgl', {
+        antialias: false, alpha: false, depth: false, stencil: false,
+        powerPreference: 'low-power', preserveDrawingBuffer: false
+      }) || cv.getContext('experimental-webgl');
+    } catch (e) { gl = null; }
+    if (!gl) {
+      /* 没有 WebGL（罕见）：隐藏画布，底色由 CSS 的 #05010a 兜住 */
+      cv.style.display = 'none';
+      return;
     }
 
-    function paint(ts) {
-      ctx.clearRect(0, 0, W, H);
+    /* 组件原版参数（照用户给的用法示例），外加本项目的性能上限。
+       v0.5 两处调整：
+         ① color 品红 #c755f3 → 蓝紫 #8b5cf6：与 --accent 同族，
+            免得背景残紫和紫字互相打架（需与 :root 的 --crt-phosphor 同步）；
+         ② brightness 1.25 → 0.40：把等离子体压到接近纯黑 —— 用户要的是
+            「黑底 + 一点流光」，底色不能再抢戏（实测：压到 0.55 时画面
+            最亮处的蓝通道仍由等离子体贡献 240，比流光带还高）；
+            「流光」由着色器里新增的两道光带提供（见 CRT_FRAG_SHADER 尾部）。 */
+    var P = {
+      color: '#8b5cf6', backgroundColor: '#05010a',
+      speed: 0.5, curvature: 0.25,
+      scanlineStrength: 0.25, scanlineFrequency: 200,
+      waveAmplitude: 0.3, waveFrequency: 2.5,
+      bloom: 1.5, bloomRadius: 1,
+      noise: 0.1, vignette: 0,
+      brightness: 0.4, pixelation: 1, rgbShift: 0.015,
+      mouseReact: true, mouseStrength: 0.5,
+      dpr: 1, fps: 30
+    };
+    var RENDER_SCALE = 0.6; /* 降分辨率渲染，CSS 放大回全屏 */
 
-      var time = reduce ? 900 : (ts - t0);
-      var BASE = 0.055;
-      var AMP = 0.17;
+    function compile(type, src) {
+      var sh = gl.createShader(type);
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        return null;
+      }
+      return sh;
+    }
 
-      for (var i = 0; i < dots.length; i++) {
-        var d = dots[i];
-        var dx = d.x - cx, dy = d.y - cy;
-        var dist = Math.sqrt(dx * dx + dy * dy) / maxD;
+    var vs = compile(gl.VERTEX_SHADER, CRT_VERT_SHADER);
+    var fs = compile(gl.FRAGMENT_SHADER, CRT_FRAG_SHADER);
+    if (!vs || !fs) { cv.style.display = 'none'; return; }
 
-        /* 从中心向外扩散的慢波 + 一点整体呼吸 */
-        var w = Math.sin(dist * 5.4 - time * 0.00105);
-        var breath = Math.sin(time * 0.00042) * 0.5;
-        var e = (w + breath + 1.4) / 2.8;
-        if (e < 0) e = 0; else if (e > 1) e = 1;
-        e = e * e * (3 - 2 * e);        /* smoothstep：亮暗过渡更柔 */
+    var prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { cv.style.display = 'none'; return; }
+    gl.useProgram(prog);
 
-        ctx.beginPath();
-        ctx.arc(d.x, d.y, 0.9 + e * 1.7, 0, 6.2832);
-        ctx.fillStyle = 'rgba(255,255,255,' + (BASE + e * AMP).toFixed(3) + ')';
-        ctx.fill();
+    /* 一个覆盖全屏的大三角形（比四边形少一个顶点，uv 在可视区内正好 0→1） */
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 0, 0,
+      3, -1, 2, 0,
+      -1, 3, 0, 2
+    ]), gl.STATIC_DRAW);
+
+    var aPos = gl.getAttribLocation(prog, 'aPos');
+    var aUv = gl.getAttribLocation(prog, 'aUv');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(aUv);
+    gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
+
+    var L = {};
+    ['uResolution', 'uTime', 'uColor', 'uBackgroundColor', 'uCurvature',
+      'uScanlineStrength', 'uScanlineFrequency', 'uWaveAmplitude', 'uWaveFrequency',
+      'uBloom', 'uBloomRadius', 'uNoise', 'uVignette', 'uBrightness', 'uPixelation',
+      'uRgbShift', 'uPointer', 'uMouseStrength', 'uMouseReact'
+    ].forEach(function (n) { L[n] = gl.getUniformLocation(prog, n); });
+
+    function hex(color) {
+      var s = String(color).replace('#', '');
+      if (s.length === 3) s = s[0] + s[0] + s[1] + s[1] + s[2] + s[2];
+      var n = parseInt(s, 16);
+      return [
+        ((n >> 16) & 255) / 255,
+        ((n >> 8) & 255) / 255,
+        (n & 255) / 255
+      ];
+    }
+
+    var cMain = hex(P.color);
+    var cBg = hex(P.backgroundColor);
+
+    gl.uniform3f(L.uColor, cMain[0], cMain[1], cMain[2]);
+    gl.uniform3f(L.uBackgroundColor, cBg[0], cBg[1], cBg[2]);
+    gl.uniform1f(L.uCurvature, P.curvature);
+    gl.uniform1f(L.uScanlineStrength, P.scanlineStrength);
+    gl.uniform1f(L.uScanlineFrequency, P.scanlineFrequency);
+    gl.uniform1f(L.uWaveAmplitude, P.waveAmplitude);
+    gl.uniform1f(L.uWaveFrequency, P.waveFrequency);
+    gl.uniform1f(L.uBloom, P.bloom);
+    gl.uniform1f(L.uBloomRadius, P.bloomRadius);
+    gl.uniform1f(L.uNoise, P.noise);
+    gl.uniform1f(L.uVignette, P.vignette);
+    gl.uniform1f(L.uBrightness, P.brightness);
+    gl.uniform1f(L.uPixelation, P.pixelation);
+    gl.uniform1f(L.uRgbShift, P.rgbShift);
+    gl.uniform1f(L.uMouseReact, P.mouseReact ? 1 : 0);
+    gl.uniform1f(L.uMouseStrength, P.mouseStrength);
+
+    var t = 0, last = 0, raf = null, running = false, frames = 0;
+    var px = 0, py = 0, tx = 0, ty = 0;
+
+    window.__crtFrames = 0;
+    window.__crtPaused = !!reduce; /* reduce 下从不进入循环 → 一开始就是「未在动画」态 */
+
+    /* 本地验收用的取样钩子：立刻重画一帧并回读像素，返回峰值/均值。
+       只在探针里手动调用，不参与正常运行路径。 */
+    window.__crtSample = function () {
+      draw();
+      var w = cv.width, h = cv.height;
+      var px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      var max = [0, 0, 0], sum = [0, 0, 0], n = 0;
+      for (var i = 0; i < px.length; i += 4) {
+        if (px[i] > max[0]) max[0] = px[i];
+        if (px[i + 1] > max[1]) max[1] = px[i + 1];
+        if (px[i + 2] > max[2]) max[2] = px[i + 2];
+        sum[0] += px[i]; sum[1] += px[i + 1]; sum[2] += px[i + 2];
+        n++;
+      }
+      return {
+        size: [w, h],
+        max: max,
+        avg: [Math.round(sum[0] / n), Math.round(sum[1] / n), Math.round(sum[2] / n)]
+      };
+    };
+
+    function resize() {
+      var dpr = Math.min(window.devicePixelRatio || 1, P.dpr);
+      var w = Math.max(1, Math.round((window.innerWidth || 1) * RENDER_SCALE * dpr));
+      var h = Math.max(1, Math.round((window.innerHeight || 1) * RENDER_SCALE * dpr));
+      if (cv.width !== w || cv.height !== h) {
+        cv.width = w;
+        cv.height = h;
+      }
+      gl.viewport(0, 0, w, h);
+      gl.uniform2f(L.uResolution, w, h);
+    }
+
+    function draw() {
+      gl.uniform1f(L.uTime, t);
+      gl.uniform2f(L.uPointer, px, py);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      frames++;
+      window.__crtFrames = frames;
+      if (frames <= 3) {
+        /* 只查前几帧：GL 错误探针，供本地验收取证（每帧都查会有开销） */
+        var err = gl.getError();
+        if (err !== 0) window.__crtGlError = err;
       }
     }
 
-    function loop(ts) {
+    function loop(now) {
       if (!running) return;
-      if (!t0) t0 = ts;
-      paint(ts);
       raf = window.requestAnimationFrame(loop);
+      var interval = 1000 / P.fps;
+      if (now - last < interval) return;   /* 帧率上限 */
+      last = now - ((now - last) % interval);
+      t += (interval / 1000) * P.speed;
+      px += (tx - px) * 0.08;
+      py += (ty - py) * 0.08;
+      draw();
     }
 
     function start() {
       if (reduce || running) return;
       running = true;
+      window.__crtPaused = false;
       raf = window.requestAnimationFrame(loop);
     }
 
     function stop() {
       running = false;
+      window.__crtPaused = true;
       if (raf) { window.cancelAnimationFrame(raf); raf = null; }
     }
 
-    build();
-    if (reduce) paint(0);
-    else start();
+    resize();
+    draw();                 /* 首帧立刻出图，避免白闪 */
+    if (!reduce) start();
 
     var rz = null;
     window.addEventListener('resize', function () {
       if (rz) window.clearTimeout(rz);
       rz = window.setTimeout(function () {
-        build();
-        if (reduce) paint(0);
+        resize();
+        if (reduce) draw();
       }, 180);
     });
 
+    window.addEventListener('pointermove', function (e) {
+      if (!P.mouseReact) return;
+      tx = (e.clientX / Math.max(window.innerWidth, 1)) * 2 - 1;
+      ty = -(((e.clientY / Math.max(window.innerHeight, 1)) * 2) - 1);
+    }, { passive: true });
+
+    window.addEventListener('pointerleave', function () { tx = 0; ty = 0; });
+
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) stop();
-      else { t0 = 0; start(); }
+      else start();
     });
-
-    if ('IntersectionObserver' in window) {
-      var landing = document.querySelector('.landing');
-      if (landing) {
-        new IntersectionObserver(function (entries) {
-          entries.forEach(function (en) {
-            if (en.isIntersecting) start();
-            else stop();
-          });
-        }, { threshold: 0.02 }).observe(landing);
-      }
-    }
   }
 
   /* ----------------------------------------------------------------
@@ -820,25 +1081,62 @@
   /* ----------------------------------------------------------------
      Region 2 — scroll reveals
      ---------------------------------------------------------------- */
+  /* v0.8：滚动 reveal 引擎 —— 升级自「普通淡入」：
+     - 每个 section 内按 DOM 顺序给 .reveal / .sec-giant 写 --d 做卡片 stagger；
+     - .sec-giant 大幅揭开进场（CSS 里 clip-path + translateY 负责）；
+     - .sec-giant 叠加 rAF 节流的轻 parallax（写 translate 属性，不与 transform 抢）；
+     - reduce / 无 IntersectionObserver → 全部立即呈现（CSS reduce 块兜底静帧）。 */
   function initReveals() {
-    var items = document.querySelectorAll('.reveal');
-    if (!items.length) return;
+    var reduce = !!(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var items = document.querySelectorAll('.reveal, .sec-giant');
 
-    if (!('IntersectionObserver' in window)) {
-      Array.prototype.forEach.call(items, function (n) { n.classList.add('is-in'); });
+    /* stagger：按「最近的 section（或 .plan-wrap）」分组，组内 DOM 顺序编号 */
+    var groups = {};
+    Array.prototype.forEach.call(items, function (n) {
+      var sec = n.closest ? n.closest('section, .plan-wrap') : null;
+      var key = sec ? (sec.id || 'sec-' + (sec.className || '').toString().split(' ')[0]) : 'root';
+      (groups[key] = groups[key] || []).push(n);
+    });
+    Object.keys(groups).forEach(function (k) {
+      groups[k].forEach(function (n, i) {
+        n.style.setProperty('--d', (i * 0.09).toFixed(2) + 's');
+      });
+    });
+
+    function show(n) { n.classList.add('is-in'); }
+
+    if (!('IntersectionObserver' in window) || reduce) {
+      Array.prototype.forEach.call(items, show);
       return;
     }
 
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
-        if (e.isIntersecting) {
-          e.target.classList.add('is-in');
-          io.unobserve(e.target);
-        }
+        if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
       });
-    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
-
+    }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
     Array.prototype.forEach.call(items, function (n) { io.observe(n); });
+
+    /* parallax：仅大标题，±36px 内，离视口中心越远越慢地反向漂 */
+    var giants = document.querySelectorAll('.sec-giant');
+    if (!giants.length) return;
+    var ticking = false;
+    function tick() {
+      ticking = false;
+      var vh = window.innerHeight || 1;
+      Array.prototype.forEach.call(giants, function (g) {
+        var r = g.getBoundingClientRect();
+        var off = ((r.top + r.height / 2) - vh / 2) / vh; /* -0.5 ~ 0.5 附近 */
+        g.style.translate = '0 ' + (off * -36).toFixed(1) + 'px';
+      });
+    }
+    function onScroll() {
+      if (!ticking) { ticking = true; window.requestAnimationFrame(tick); }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    tick();
   }
 
   /* ----------------------------------------------------------------
@@ -891,9 +1189,95 @@
     }
   }
 
+  /* ----------------------------------------------------------------
+     Region 1.5 — 首屏封面实时数据（★连续打卡 / 今日概览卡 / 日期件）
+     数据全部由已有 state 推导，不新增任何存储字段。
+     renderAll() 每次全量重画时一并刷新，打卡 / 改周期 / 导入后即时生效。
+     ---------------------------------------------------------------- */
+  function renderHeroLive() {
+    /* ★ 连续打卡：streak() 现成。0 天时换措辞，节点结构不动（heroStreak 永远存在） */
+    var s = streak();
+    var yes = el('heroStreakYes');
+    var no = el('heroStreakNo');
+    var num = el('heroStreak');
+    if (yes && no) {
+      yes.hidden = s <= 0;
+      no.hidden = s > 0;
+    }
+    if (num) num.textContent = String(s);
+
+    /* 顶栏日期件：内容是日期不是时刻，随 renderAll 重写即可，不做分钟级定时器 */
+    var now = new Date();
+    var hDate = el('heroDate');
+    if (hDate) {
+      hDate.textContent = (now.getMonth() + 1) + '月' + now.getDate() + '日 · 周' +
+        '日一二三四五六'.charAt(now.getDay());
+    }
+
+    /* 今日概览卡 */
+    var p = period();
+    var all = totalDays();
+    var tKey = todayKey();
+    var idx = indexOfDate(tKey);
+    var dayEl = el('heroDay');
+    var slotsEl = el('heroSlots');
+    var dateEl = el('heroCardDate');
+    var fill = el('heroBarFill');
+    var bar = fill ? fill.parentNode : null;
+    var cta = el('heroCardCta');
+
+    if (dateEl) {
+      dateEl.textContent = ' · ' + (now.getMonth() + 1) + '.' + now.getDate();
+    }
+
+    var ratio = 0;
+    var isRest = false;
+
+    if (!all) {
+      if (dayEl) dayEl.textContent = '还没设置周期';
+      if (slotsEl) slotsEl.textContent = '点「计划周期」选个开始日期';
+    } else if (idx < 0 && tKey < p.start) {
+      if (dayEl) dayEl.textContent = '第 1 学习日待开始';
+      if (slotsEl) slotsEl.textContent = '周期还没开始，先去排计划';
+    } else if (idx < 0 && tKey > p.end) {
+      if (dayEl) dayEl.textContent = '本期已结束';
+      if (slotsEl) slotsEl.textContent = '共 ' + totalStudy() + ' 个学习日，去开新一期吧';
+    } else {
+      var day = days()[idx];
+      var prog = dayProgress(tKey);
+      isRest = !!(day && day.rest);
+      ratio = prog ? prog.ratio : 0;
+      if (dayEl) dayEl.textContent = isRest ? '休息日 · 歇一歇' : ('第 ' + day.n + ' 学习日');
+      if (slotsEl) {
+        slotsEl.textContent = isRest
+          ? '今天是休息日，不用打卡'
+          : ('今日完成 ' + (prog ? prog.done : 0) + '/' + (prog ? prog.total : 0) + ' 主线时段');
+      }
+    }
+
+    /* 进度条：reduce 分支由 CSS transition:none 兜底，这里直接置终宽即可 */
+    if (fill) {
+      var w = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+      fill.style.width = w + '%';
+    }
+    if (bar) bar.classList.toggle('is-rest', isRest);
+
+    /* 卡内 CTA 统一回计划板（日期锚点格式未核实，不猜） */
+    if (cta) cta.setAttribute('href', '#plan');
+
+    /* 底部信息条：周期区间 */
+    var hb = el('hbPeriod');
+    if (hb) {
+      hb.textContent = all
+        ? (p.start.replace(/-/g, '.') + ' – ' + p.end.replace(/-/g, '.') + ' · ' + all + ' 天')
+        : '周期未设置';
+    }
+  }
+
   /* 一处改动 → 全量重画。改周期 / 导入了新计划之后调它。 */
   function renderAll() {
     renderHead();
+    renderHeroLive();
     renderBoard();
     renderToday();
     renderCal();
@@ -937,16 +1321,18 @@
      ---------------------------------------------------------------- */
   function renderToday() {
     var bar = el('todayBar');
-    if (!bar) return;
+    var todo = el('todayTodo');
+    if (!bar && !todo) return;
 
     var p = period();
     var tKey = todayKey();
     var idx = indexOfDate(tKey);
 
     if (idx < 0) {
-      bar.innerHTML = '<span>今天不在计划周期内（' +
+      if (bar) bar.innerHTML = '<span>今天不在计划周期内（' +
         esc(p.start.replace(/-/g, '.')) + ' – ' + esc(p.end.replace(/-/g, '.')) +
         '，共 ' + totalDays() + ' 天）</span>';
+      if (todo) todo.innerHTML = '';
       return;
     }
 
@@ -955,8 +1341,64 @@
     var parts = ['今天', '<span class="dot-sep"></span>',
       day.d.replace(/-/g, '.'), day.wd, '<span class="dot-sep"></span>', kind,
       '<span class="dot-sep"></span>', '<span>周期内第 ' + (idx + 1) + ' 天 / 共 ' + totalDays() + ' 天</span>'];
+    if (bar) bar.innerHTML = parts.join(' ');
 
-    bar.innerHTML = parts.join(' ');
+    /* ---- 今日待办 + 快捷打卡：只列「主线」时段（勾完 = 当天打卡完成） ---- */
+    if (todo) {
+      if (day.rest) {
+        todo.innerHTML = '<p class="todo-empty">今天是休息日，不排主线时段。</p>';
+      } else {
+        var slots = slotsOf(day).filter(function (sl) { return sl.kind === 'core'; });
+        if (!slots.length) slots = slotsOf(day);
+        if (!slots.length) {
+          todo.innerHTML = '<p class="todo-empty">今天还没有时段 —— 点上面的「编辑计划」加一段。</p>';
+        } else {
+          var done = 0;
+          var rows = slots.map(function (sl) {
+            var on = isChecked(day.d, sl.id);
+            if (on) done++;
+            return '<li class="todo-item' + (on ? ' is-done' : '') + '">' +
+              '<input type="checkbox" class="todo-check" data-sid="' + esc(sl.id) + '"' +
+              (on ? ' checked' : '') + ' aria-label="勾选「' + esc(sl.title) + '」">' +
+              '<span class="todo-time">' + esc(sl.time) + '</span>' +
+              '<span class="todo-name">' + esc(sl.title) + '</span>' +
+              '</li>';
+          }).join('');
+          todo.innerHTML =
+            '<div class="todo-head"><span>今日待办</span>' +
+            '<span class="todo-prog">' + done + '/' + slots.length + '</span>' +
+            '<button class="todo-all" type="button">' +
+              (done === slots.length ? '已全部完成 ✓' : '一键全部完成') + '</button></div>' +
+            '<ul class="todo-list">' + rows + '</ul>';
+        }
+      }
+    }
+  }
+
+  /* 今日待办的交互：勾选 / 一键全部完成（事件委托，render 后不丢） */
+  function initTodayTodo() {
+    var todo = el('todayTodo');
+    if (!todo) return;
+    todo.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!(t.classList && t.classList.contains('todo-check'))) return;
+      var d = todayKey();
+      var k = checkKey(d, t.dataset.sid);
+      if (t.checked) state.checks[k] = true; else delete state.checks[k];
+      save(); renderToday(); renderBoard(); renderCal(); renderHeroLive();
+    });
+    todo.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.todo-all') : null;
+      if (!b) return;
+      var d = todayKey();
+      var i = indexOfDate(d);
+      if (i < 0) return;
+      var day = days()[i];
+      var slots = slotsOf(day).filter(function (sl) { return sl.kind === 'core'; });
+      if (!slots.length) slots = slotsOf(day);
+      slots.forEach(function (sl) { state.checks[checkKey(d, sl.id)] = true; });
+      save(); renderToday(); renderBoard(); renderCal(); renderHeroLive();
+    });
   }
 
   /* ----------------------------------------------------------------
@@ -1151,6 +1593,7 @@
         cb.className = 'tl-check';
         cb.id = 'chk-' + day.d + '-' + slot.id;
         cb.checked = isChecked(day.d, slot.id);
+        cb.setAttribute('aria-label', '勾选「' + (slot.title || slot.time) + '」');
 
         var time = document.createElement('span');
         time.className = 'tl-time';
@@ -1473,7 +1916,7 @@
     if (!tabs || !panels) return;
 
     var list = tracks();
-    if (!trackById(state.track)) state.track = list[0].id;
+    if (!trackById(state.track)) state.track = list.length ? list[0].id : '';
 
     tabs.innerHTML = '';
     panels.innerHTML = '';
@@ -2329,7 +2772,8 @@
       });
     }
 
-    state.track = tracks()[0].id;
+    var tl = tracks();
+    state.track = tl.length ? tl[0].id : '';
     var a = days();
     if (indexOfDate(state.sel) < 0) state.sel = a.length ? a[0].d : '';
 
@@ -2387,7 +2831,8 @@
       state.links = [];
       state.openMonths = null;
       normalizePlan();
-      state.track = tracks()[0].id;
+      var tl0 = tracks();
+      state.track = tl0.length ? tl0[0].id : '';
       var a0 = days();
       state.sel = todayIndex() >= 0 ? todayKey() : (a0[0] ? a0[0].d : '');
       save();
@@ -2538,16 +2983,24 @@
     { code: 'D10', name: '综合零件图', part: '带孔底板', what: '完整出图 · 打印为 PDF' }
   ];
 
+  /* 发布版空白模板：不带 40 张图纸，资源仓库由用户自己填 */
+  if (EMPTY_TEMPLATE) REPO_SHAPES = [];
+
   var DXF_DIR = 'assets/dxf/';
   var galShape = '';
   var galMode = '';
+  var galQ = '';            /* v0.7 图纸搜索词 */
 
   function galItems() {
     var out = [];
+    var q = galQ.trim().toLowerCase();
     REPO_SHAPES.forEach(function (s) {
       if (galShape && s.code !== galShape) return;
       SHEET_MODES.forEach(function (m) {
         if (galMode && m.k !== galMode) return;
+        var hay = (s.code + ' ' + s.name + ' ' + s.part + ' ' + s.what + ' ' +
+          m.cn + ' ' + m.tip).toLowerCase();
+        if (q && hay.indexOf(q) < 0) return;
         out.push({ code: s.code, shape: s, mode: m, file: s.code + '-' + m.k });
       });
     });
@@ -2600,13 +3053,35 @@
 
     var items = galItems();
     var cnt = el('galCount');
-    if (cnt) cnt.textContent = galMode ? (items.length + ' 张') : (items.length + ' 张 / 共 40 张');
+    if (cnt) {
+      var tag = [];
+      if (galShape) {
+        var sh = '';
+        REPO_SHAPES.forEach(function (x) { if (x.code === galShape) sh = x.name; });
+        tag.push(galShape + ' ' + sh);
+      }
+      if (galMode) {
+        var mn = '';
+        SHEET_MODES.forEach(function (x) { if (x.k === galMode) mn = x.cn; });
+        tag.push(mn);
+      }
+      if (galQ.trim()) tag.push('“' + galQ.trim() + '”');
+      var totalAll = REPO_SHAPES.length * SHEET_MODES.length;
+      cnt.textContent = tag.length
+        ? (tag.join(' · ') + ' · ' + items.length + ' 张')
+        : (items.length + ' 张 / 共 ' + totalAll + ' 张');
+    }
 
     box.innerHTML = '';
     if (!items.length) {
-      var em = document.createElement('p');
+      var em = document.createElement('div');
       em.className = 'gal-empty';
-      em.textContent = '这个组合下没有图纸，换个筛选看看。';
+      if (!REPO_SHAPES.length) {
+        /* 空白模板：没有任何图纸 → 引导去「我的资料仓库」自己添加 */
+        em.textContent = '还没有图纸 —— 这是空白模板，到下面的「我的资料仓库」添加你自己的链接和文件。';
+      } else {
+        em.innerHTML = '这个组合下没有图纸，换个筛选看看。<button class="empty-cta" type="button" data-gal-clear>清除筛选</button>';
+      }
       box.appendChild(em);
       return;
     }
@@ -3246,9 +3721,23 @@
       });
     }
 
+    var gs = el('galSearch');
+    if (gs) {
+      gs.addEventListener('input', function () {
+        galQ = gs.value;
+        renderGal();
+      });
+    }
+
     var gal = el('gal');
     if (gal) {
       gal.addEventListener('click', function (e) {
+        if (e.target && e.target.closest && e.target.closest('[data-gal-clear]')) {
+          galShape = ''; galMode = ''; galQ = '';
+          var gsc = el('galSearch'); if (gsc) gsc.value = '';
+          renderGalFilter(); renderGal();
+          return;
+        }
         var img = e.target && e.target.closest ? e.target.closest('[data-preview]') : null;
         if (!img) return;
         openLightbox(
@@ -3459,8 +3948,8 @@
     var note = el('hmNote');
 
     if (!a.length) {
-      wrap.innerHTML = '';
-      if (note) note.textContent = '还没有设置周期';
+      wrap.innerHTML = '<p class="bars-empty">还没有设置周期。<a class="empty-cta" href="#plan">去设置周期</a></p>';
+      if (note) note.textContent = '';
       return;
     }
 
@@ -3504,7 +3993,7 @@
 
     var list = tracks();
     if (!list.length) {
-      wrap.innerHTML = '<p class="bars-empty">还没有学习模块。</p>';
+      wrap.innerHTML = '<p class="bars-empty">还没有学习模块。<a class="empty-cta" href="#tracks">去加模块</a></p>';
       return;
     }
 
@@ -3538,8 +4027,10 @@
     if (!wrap) return;
 
     var a = days();
+    var tn = el('trendNote');
     if (!a.length) {
-      wrap.innerHTML = '<p class="trend-empty">还没有设置周期。</p>';
+      wrap.innerHTML = '<p class="trend-empty">还没有设置周期。<a class="empty-cta" href="#plan">去设置周期</a></p>';
+      if (tn) tn.textContent = '';
       return;
     }
 
@@ -3553,10 +4044,12 @@
 
     var max = 1;
     order.forEach(function (k) { if (map[k].n > max) max = map[k].n; });
+    if (tn) tn.textContent = '每个柱 = 该' + (trendGran === 'month' ? '月' : '周') +
+      '打卡时段数 · 峰值 ' + max + ' 段';
 
     var BAR = 96;                                    /* 柱子的最大像素高度 */
     /* 按周时一整年有 53 列，标签全标会糊成一片 —— 抽到约 12 个 */
-    var step = trendGran === 'month' ? 1 : Math.max(1, Math.ceil(order.length / 12));
+    var step = trendGran === 'month' ? 1 : Math.max(1, Math.ceil(order.length / 18));
 
     var html = '';
     order.forEach(function (k, i) {
@@ -3710,6 +4203,7 @@
     if (!list.length) {
       wrap.innerHTML = '<p class="journal-empty">' +
         (all.length ? '没有匹配的复盘，换个关键词试试。' : '这里会按周汇总你写过的每一份复盘。') +
+        (all.length ? '' : ' <a class="empty-cta" href="#plan">去写第一篇</a>') +
         '</p>';
       return;
     }
@@ -3828,6 +4322,187 @@
   /* ----------------------------------------------------------------
      Boot
      ---------------------------------------------------------------- */
+  /* ----------------------------------------------------------------
+     v0.3.0 — 悬浮能力探测
+     只有「精确指针 + 支持 hover」的设备才挂 html.can-hover，
+     hover 换色全部收在这个类下面 → 触摸设备不会出现点完粘住的假悬浮态。
+     ---------------------------------------------------------------- */
+  function initHoverCapability() {
+    try {
+      if (window.matchMedia &&
+        window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+        document.documentElement.classList.add('can-hover');
+      }
+    } catch (e) {
+      /* 老环境静默降级：不启用 hover 换色；既有 transform/opacity 悬浮效果不受影响 */
+    }
+  }
+
+  /* ----------------------------------------------------------------
+     v0.3.0 — 吸顶磨砂导航（两段式：首屏段纸色 → 滚出首屏黑玻璃）
+     滚动路径零强制同步布局：limit 只在初始与 resize 重算，滚动只读缓存值。
+     ---------------------------------------------------------------- */
+  function initStickyNav() {
+    var header = document.querySelector('.site-header');
+    var landing = el('home');
+    if (!header || !landing) return;
+
+    var STUCK_AT = 8; /* 滚过 8px 即进入磨砂态 */
+    var past = false;
+    var limit = 0;
+    var ticking = false;
+
+    function headH() {
+      /* 直接量实测行高：--head-h 是 clamp() 表达式，getPropertyValue 拿到的是原始
+         字符串（parseFloat 会得 NaN），不能用来算阈值 */
+      var cs = getComputedStyle(header);
+      var h = header.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      return h > 0 ? h : 48;
+    }
+
+    function measure() {
+      limit = landing.offsetHeight - headH();
+    }
+
+    function update() {
+      ticking = false;
+      var y = window.scrollY || window.pageYOffset || 0;
+
+      header.classList.toggle('is-stuck', y > STUCK_AT);
+
+      /* 迟滞：进入 limit - 4、退出 limit - 28，避免临界处来回抖 */
+      if (!past && y > limit - 4) past = true;
+      else if (past && y < limit - 28) past = false;
+      header.classList.toggle('is-past-hero', past);
+    }
+
+    function schedule() {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(update);
+    }
+
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', function () { measure(); schedule(); });
+    window.addEventListener('orientationchange', function () { measure(); schedule(); });
+
+    measure();
+    update();
+  }
+
+  /* ----------------------------------------------------------------
+     v0.4 主视觉 — 棱镜的鼠标视差
+     幅度极小（±2.4°），且只对「精确指针 + 支持 hover + 未开减动效」生效：
+     触屏设备根本不绑定，避免手指划过时画面抖动。
+     倾斜只写进 CSS 变量、过渡交给 .cube-stage 的 transition —— 不引入常驻 rAF。
+     ---------------------------------------------------------------- */
+  function initCubeParallax() {
+    var stage = el('cubeStage');
+    if (!stage) return;
+
+    var fine = false;
+    var reduce = false;
+    try {
+      fine = !!(window.matchMedia &&
+        window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+      reduce = !!(window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (e) { return; }
+    if (!fine || reduce) return;
+
+    var MAX = 2.4;
+    var raf = null;
+    var tx = 0, ty = 0;
+
+    function apply() {
+      raf = null;
+      stage.style.setProperty('--tilt-x', ty.toFixed(2) + 'deg');
+      stage.style.setProperty('--tilt-y', tx.toFixed(2) + 'deg');
+    }
+
+    window.addEventListener('pointermove', function (e) {
+      var w = window.innerWidth || 1;
+      var h = window.innerHeight || 1;
+      tx = ((e.clientX / w) * 2 - 1) * MAX;
+      ty = -(((e.clientY / h) * 2 - 1) * MAX) * 0.6;
+      if (!raf) raf = window.requestAnimationFrame(apply);
+    }, { passive: true });
+  }
+
+  /* ----------------------------------------------------------------
+     v0.6 模块边缘辉光（BorderGlow 的零依赖移植 —— 行为部分）
+     - 全站只用「一个」委托监听，不是每张卡挂一个；rAF 节流
+     - 触屏设备不绑（html 没有 .can-hover 就退出）
+     - prefers-reduced-motion 不绑 → --edge-proximity 恒为 0，辉光从不出现
+     - 只写两个自定义属性，几何/配色/掩码全在 CSS 里
+     注意：下面这个选择器列表必须与 styles.css 的「v0.6 — 所有模块卡」段一致。
+     ---------------------------------------------------------------- */
+  var GLOW_SEL = '.hero-card, .metric, .stat-block, .repo-block, .cal-month, ' +
+    '.day-panel, .goal, .res, .jr, .gal-card, .lib-card, .track-panel';
+
+  function initModuleGlow() {
+    if (window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var current = null, job = null, raf = null;
+
+    function clear(el) {
+      if (el) el.style.setProperty('--edge-proximity', '0');
+    }
+
+    /* 能力类在「事件里」判、不在绑定时判：
+       initHoverCapability() 与本函数同批在 init() 里跑，谁先谁后不该影响功能；
+       而验收/自动化会在加载后注入 .can-hover，绑定时判会让监听器永久缺失。 */
+    function canHover() {
+      return document.documentElement.classList.contains('can-hover');
+    }
+
+    function paint() {
+      raf = null;
+      var j = job;
+      job = null;
+      if (!j) return;
+      var el = j.el;
+      var r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+
+      var dx = j.x - (r.left + r.width / 2);
+      var dy = j.y - (r.top + r.height / 2);
+      /* 到最近一条边的真实像素距离（宽卡上贴左边也必须算「很近」——
+         用归一化的 max(|dx|/(w/2), |dy|/(h/2)) 会把宽卡算成低强度） */
+      var edgePx = Math.min(j.x - r.left, r.right - j.x, j.y - r.top, r.bottom - j.y);
+      /* 起效带：短边的 28%，最少 24px —— 免得小卡片整块都落在「边缘带」里 */
+      var band = Math.max(24, Math.min(r.width, r.height) * 0.28);
+      var p = 1 - edgePx / band;
+      if (p < 0) p = 0;
+      if (p > 1) p = 1;
+      el.style.setProperty('--edge-proximity', (p * 100).toFixed(1));
+      /* CSS 圆锥渐变的 0° 在正上方且顺时针 → atan2(dx, -dy) 就是所需角度 */
+      var a = Math.atan2(dx, -dy) * 180 / Math.PI;
+      el.style.setProperty('--cursor-angle', a.toFixed(1) + 'deg');
+    }
+
+    document.addEventListener('pointermove', function (e) {
+      if (!canHover()) {
+        if (current) { clear(current); current = null; }
+        return;
+      }
+      var t = e.target;
+      var el = (t && t.closest) ? t.closest(GLOW_SEL) : null;
+      if (el !== current) {
+        clear(current);
+        current = el;
+      }
+      if (!el) return;
+      job = { el: el, x: e.clientX, y: e.clientY };
+      if (!raf) raf = window.requestAnimationFrame(paint);
+    }, { passive: true });
+
+    /* 指针离开窗口 / 页面滚走 → 收掉当前这张卡的辉光 */
+    window.addEventListener('blur', function () { clear(current); current = null; });
+    document.addEventListener('pointerleave', function () { clear(current); current = null; });
+  }
+
   function init() {
     load();
 
@@ -3839,12 +4514,32 @@
     }
 
     initCounters();
-    initDotMatrix();
+    initCrtBackground();
+    initHoverCapability();
+    initModuleGlow();
+    initTodayTodo();
+    initStickyNav();
+    initCubeParallax();
     initMenu();
     initReveals();
     initReview();
 
     renderAll();
+    /* 发布版空白模板：把「出厂数据」相关的静态内容收敛掉，换空白引导语 */
+    if (EMPTY_TEMPLATE) {
+      var bsT = el('tracks') ? el('tracks').querySelector('.block-sub') : null;
+      if (bsT) bsT.textContent = '这里是空的 —— 点「编辑计划」添加你的第一条学习线，每条线下再排阶段任务、配套资源和笔记。';
+      var bsR = el('repo') ? el('repo').querySelector('.block-sub') : null;
+      if (bsR) bsR.textContent = '这里是空的 —— 到下面的「我的资料仓库」添加课程链接、图片、PDF、笔记，按主题归好，下次一眼就能翻到。';
+      /* 「CAD 练习图纸仓库」整块在空白模板下没有内容 → 隐藏，只留「我的资料仓库」 */
+      var cadBlock = el('repo') ? el('repo').querySelector('.repo-block') : null;
+      if (cadBlock) cadBlock.style.display = 'none'; /* 不用 hidden 属性：.repo-block/.stat 的 CSS display 会盖过它（踩过） */
+      /* 首屏「40张 练习图纸」统计在空白模板下是假话 → 隐藏，四格变三格 */
+      var st40 = document.querySelector('.stats .stat:nth-child(2)');
+      if (st40) st40.style.display = 'none';
+      var statsBox = document.querySelector('.stats');
+      if (statsBox) statsBox.classList.add('stats-3');
+    }
     initTrackTools();
     initRepo();
     initStats();
