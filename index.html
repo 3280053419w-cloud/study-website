@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#07060d" />
+<title>学习计划板 · 把学习变成自己的长期系统</title>
+<meta name="description" content="个人学习操作系统：课程、任务、知识、进度与学习数据，在一个沉浸式工作空间中统一管理。纯前端、零依赖，数据只存在你自己的浏览器里。" />
+<meta name="app-version" content="4.0.0" />
+<link rel="icon" href="assets/icon/icon-256.png" type="image/png" />
+
+<!-- ===== 上线公网用：社交分享卡片 + 结构化数据 + 规范链接 =====
+     ① og:/twitter: 让分享到微信/QQ/微博/Twitter 时出现标题+摘要+预览图，而不是一条裸链接；
+     ② JSON-LD 让搜索引擎明白这是一个「Web 应用」，可能生成富结果；
+     ③ canonical 声明唯一地址，避免被当成重复内容。
+     改域名时：把下面三处 https://3280053419w-cloud.github.io/study-website/ 一起换掉。 -->
+<link rel="canonical" href="https://3280053419w-cloud.github.io/study-website/" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="学习计划板" />
+<meta property="og:locale" content="zh_CN" />
+<meta property="og:title" content="学习计划板 · 把学习变成自己的长期系统" />
+<meta property="og:description" content="课程、任务、知识、进度与学习数据，在一个沉浸式工作空间中统一管理。纯前端、零依赖，数据只存在你自己的浏览器里。" />
+<meta property="og:url" content="https://3280053419w-cloud.github.io/study-website/" />
+<meta property="og:image" content="https://3280053419w-cloud.github.io/study-website/assets/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="学习计划板 · 把学习变成自己的长期系统" />
+<meta name="twitter:description" content="课程、任务、知识、进度与学习数据，在一个沉浸式工作空间中统一管理。纯前端、零依赖，数据只存在你自己的浏览器里。" />
+<meta name="twitter:image" content="https://3280053419w-cloud.github.io/study-website/assets/og.png" />
+
+<!-- ===== 安全：内容安全策略（纵深防御） =====
+     本站零外部脚本、零 eval、零内联事件处理器（已全量核查），所以只放行同源资源即可。
+     白名单：同源脚本/样式/字体/图片；data: 与 blob: 用于噪点背景与本地预览；
+     connect-src 额外放行 DeepSeek（仅 AI 助手在你填了 Key 并主动发问时才用）。
+     'unsafe-inline' 仅用于 style（站内有 style="--d:…" 内联属性）与 script（JSON-LD 内联块）。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.deepseek.com; object-src 'none'; base-uri 'none'; form-action 'self'" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "学习计划板",
+  "alternateName": "Learning OS",
+  "url": "https://3280053419w-cloud.github.io/study-website/",
+  "description": "个人学习操作系统：课程、任务、知识、进度与学习数据统一管理。纯前端、零依赖，数据只存在你自己的浏览器里。",
+  "applicationCategory": "EducationalApplication",
+  "operatingSystem": "Any",
+  "inLanguage": "zh-CN",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
+}
+</script>
+
+<!-- 样式、字体、图标、背景全部本地化：正文用系统字体栈，标题用 fonts/GeistPixel-Circle.woff2（点阵），
+     图标是内联 SVG，首屏背景是本地 WebGL 着色器。
+     唯一可能出网的路径是「AI 学习助手」—— 它默认不发任何请求，只有你自己填了 API Key 并点了发问，
+     才会用你自己的额度直连该厂商。没填 Key 时走本地规则引擎，断网也照常可用。 -->
+<link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+
+<!-- 无障碍：键盘/读屏用户按 Tab 的第一站 —— 跳过 logo/导航/工具按钮，直达正文 -->
+<a class="skip-link" href="#main">跳到主内容</a>
+
+<!-- ==================================================================
+     v0.4 全局 CRT 背景（纯本地 WebGL，移植自 React Bits 的 CRTWarp 着色器）
+     图层顺序：.crt-bg(z-2 画面) → .crt-veil(z-1 暗纱，保文字对比度) → 正文
+     ================================================================== -->
+<canvas class="crt-bg" id="crtCanvas" aria-hidden="true"></canvas>
+<div class="crt-veil" id="crtVeil" aria-hidden="true"></div>
+
+<!-- v4.1 §3 全页氛围层（fixed）：三处光位 ×2 套色（warm / cool）叠在一起。
+     首屏那套 .bg-aura 活在 .landing 里，滚出首屏就没了；这一层跟着滚完整站，
+     负责 §8 鼠标视差 与 §10/§11 随版块缓慢换色。
+     换色靠两套叠层的 opacity 交叉淡入，而不是切色值 ——
+     opacity 过渡在任何浏览器上都平滑，不会出现 §11 禁止的硬切色。 -->
+<div class="aura-page" id="auraPage" aria-hidden="true">
+  <i class="ap-1 ap-warm"></i><i class="ap-1 ap-cool"></i>
+  <i class="ap-2 ap-warm"></i><i class="ap-2 ap-cool"></i>
+  <i class="ap-3 ap-warm"></i><i class="ap-3 ap-cool"></i>
+</div>
+
+<!-- v4.0 §2.2/§2.3：极淡噪点层（SVG 内联 data URI，本地生成、零请求）。
+     压在暗纱之上、正文之下，只负责让暗场「不那么塑料」，不参与任何交互。 -->
+<div class="grain" aria-hidden="true"></div>
+
+<!-- v4.1 §7 尘粒层：两片循环点阵（不是 DOM 粒子堆，原因见 styles.css 里 .bg-dust 的注释）。
+     只在「精细指针 + 非减弱动效」的桌面端渲染。 -->
+<div class="bg-dust" id="bgDust" aria-hidden="true"><i class="d-a"></i><i class="d-b"></i></div>
+
+<!-- ==================================================================
+     REGION 1 — LANDING (single viewport, full-bleed)
+     ================================================================== -->
+<div class="landing" id="home">
+
+  <div class="bg" aria-hidden="true">
+    <!-- v4.0 氛围层：三团极慢漂移的柔光 + 极淡网格。
+         盖在 WebGL 画面之上、正文之下 —— 把原来偏亮偏饱和的紫压成
+         「能感觉到、但不抢字」，同时给首屏一点工程纹理。
+         纯 CSS，不发请求、不加依赖；14–20s 一次往返，看不出循环。 -->
+    <div class="bg-aura"><i></i><i></i><i></i></div>
+    <div class="bg-grid"></div>
+    <!-- v4.0 工程感细节：首屏四角坐标刻度（Coordinates）。
+         纯 1px 线、不参与任何动画、不进文字安全区，只添一点「仪器感」。 -->
+    <div class="hero-ticks"><i></i><i></i><i></i><i></i></div>
+    <!-- 超大水印：沉在全部内容之下，被底边裁掉一部分 -->
+    <div class="hero-mark" aria-hidden="true">STUDY</div>
+  </div>
+
+  <div class="page">
+
+    <!-- ---------- Header ---------- -->
+    <header class="site-header anim" style="--d: .05s">
+      <a class="logo-btn" href="#home" aria-label="学习计划板 · 返回顶部">
+        <img src="assets/logo.webp" alt="" width="52" height="52" />
+        <!-- §4「左：LOGO + 产品名称」。绝对定位挂在圆右侧，不参与 flex，
+             所以既不挤动居中的导航胶囊，也不影响它与内容列的对齐。 -->
+        <span class="brand-name" aria-hidden="true"><b>学习计划板</b><i>Learning OS</i></span>
+      </a>
+
+      <!-- §4 导航命名对齐原稿：首页 / 学习 / 课程 / 知识库 / 数据。
+           六个锚点、六个页面一个没删也没合并（§20.3/§20.4），
+           只是把显示名换成原稿那套词；复盘墙保留为第六项，免得那个页面没有入口。 -->
+      <nav class="nav-pill" aria-label="主导航">
+        <a class="nav-link is-active" href="#home">首页</a>
+        <a class="nav-link" href="#plan">学习</a>
+        <a class="nav-link" href="#tracks">课程</a>
+        <a class="nav-link" href="#repo">知识库</a>
+        <a class="nav-link" href="#stats">数据</a>
+        <a class="nav-link" href="#journal">复盘</a>
+      </nav>
+
+      <span class="hero-date" id="heroDate" aria-hidden="true"></span>
+
+      <!-- v4.0 工具层：搜索 / 通知 / 学习档案 / AI 助手。全部零后端，数据不出本机。 -->
+      <div class="nav-acts">
+        <button class="na-btn" type="button" id="tbSearch" aria-label="搜索" title="搜索（Ctrl / ⌘ + K）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20.3 20.3-3.9-3.9" /></svg>
+        </button>
+        <button class="na-btn" type="button" id="tbBell" aria-label="通知" title="通知">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8.5a6 6 0 1 0-12 0c0 5-2.2 6.5-2.2 6.5h16.4S18 13.5 18 8.5Z" /><path d="M10.3 19a2 2 0 0 0 3.4 0" /></svg>
+          <i class="na-dot" id="tbDot" hidden></i>
+        </button>
+        <button class="na-btn na-ai" type="button" id="tbAi" aria-label="AI 学习助手" title="AI 学习助手">AI</button>
+        <button class="na-user" type="button" id="tbUser" aria-label="学习档案" title="学习档案">
+          <span class="nu-av" id="nuAv">学</span>
+        </button>
+      </div>
+
+      <a class="signin" href="#board">开始学习</a>
+
+      <button class="burger" id="burger" type="button" aria-label="打开菜单" aria-expanded="false" aria-controls="mobileMenu">
+        <span></span><span></span><span></span>
+      </button>
+    </header>
+
+    <!-- ---------- Hero（v0.4：CRT 暗场 · 左文右卡 · 悬浮透光棱镜） ---------- -->
+    <main class="hero" id="main" tabindex="-1">
+
+      <!-- 主视觉：悬浮透明棱镜。纯 CSS 3D + 内联 SVG，零依赖、不发请求。
+           置于文本之下（z-index 低于两列内容）且 pointer-events:none ——
+           既不会盖住中文笔画，也绝不挡 CTA 的点击。 -->
+      <div class="cube-layer" id="cubeLayer" aria-hidden="true">
+        <span class="cube-halo"></span>
+        <span class="cube-halo cube-halo-warm"></span>
+        <span class="cube-orbit cube-orbit-a"></span>
+        <span class="cube-orbit cube-orbit-b"></span>
+        <span class="cube-dust"></span>
+
+        <div class="cube-stage" id="cubeStage">
+          <div class="cube-sway">
+            <div class="cube-float">
+              <div class="cube-spin-y">
+                <div class="cube-spin-x">
+                  <div class="cube">
+                    <div class="cube-face f-front">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <g class="cl-dots">
+                          <circle cx="22" cy="30" r="1.6" /><circle cx="34" cy="30" r="1.6" />
+                          <circle cx="46" cy="30" r="1.6" /><circle cx="58" cy="30" r="1.6" />
+                          <circle cx="70" cy="30" r="1.6" /><circle cx="22" cy="42" r="1.6" />
+                          <circle cx="34" cy="42" r="1.6" /><circle cx="46" cy="42" r="1.6" />
+                          <circle cx="58" cy="42" r="1.6" /><circle cx="70" cy="42" r="1.6" />
+                          <circle cx="22" cy="54" r="1.6" /><circle cx="34" cy="54" r="1.6" />
+                          <circle cx="46" cy="54" r="1.6" /><circle cx="58" cy="54" r="1.6" />
+                          <circle cx="70" cy="54" r="1.6" /><circle cx="22" cy="66" r="1.6" />
+                          <circle cx="34" cy="66" r="1.6" /><circle cx="46" cy="66" r="1.6" />
+                          <circle cx="58" cy="66" r="1.6" /><circle cx="70" cy="66" r="1.6" />
+                        </g>
+                        <g class="cl-lit">
+                          <circle cx="34" cy="30" r="2.6" /><circle cx="58" cy="42" r="2.6" />
+                          <circle cx="46" cy="54" r="2.6" />
+                        </g>
+                        <rect x="14" y="22" width="64" height="52" rx="4" class="cl-frame" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-back">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <ellipse cx="50" cy="50" rx="38" ry="38" class="cl-orbit" />
+                        <ellipse cx="50" cy="50" rx="24" ry="24" class="cl-orbit" />
+                        <ellipse cx="50" cy="50" rx="10" ry="10" class="cl-orbit" />
+                        <circle cx="50" cy="12" r="2.4" class="cl-lit" />
+                        <circle cx="74" cy="50" r="1.8" class="cl-lit" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-left">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M30 16v68" class="cl-frame" />
+                        <path d="M30 22h22M30 34h14M30 46h26M30 58h18M30 70h22M30 82h12" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-right">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M16 66 30 52 42 58 54 38 66 44 82 26" />
+                        <g class="cl-lit">
+                          <circle cx="30" cy="52" r="1.8" /><circle cx="54" cy="38" r="1.8" />
+                          <circle cx="82" cy="26" r="1.8" />
+                        </g>
+                        <path d="M16 82h66" class="cl-frame" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-top">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <rect x="20" y="20" width="60" height="60" rx="3" />
+                        <rect x="32" y="32" width="36" height="36" rx="2" class="cl-frame" />
+                        <rect x="44" y="44" width="12" height="12" rx="1" class="cl-lit" />
+                      </svg>
+                    </div>
+                    <div class="cube-face f-bottom">
+                      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
+                        <path d="M50 14v72M14 50h72" class="cl-frame" />
+                        <circle cx="50" cy="50" r="20" class="cl-orbit" />
+                        <circle cx="50" cy="50" r="31" class="cl-orbit" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-left">
+        <p class="hero-eyebrow anim" style="--d: .05s">PERSONAL LEARNING OS</p>
+
+        <h1 class="headline anim">
+          <span class="line l1">把学习</span>
+          <span class="line l2">变成<span class="dim">你自己的</span></span>
+          <span class="line l3">长期系统。</span>
+        </h1>
+
+        <div class="trust anim" style="--d: .22s">
+          <div class="trust-avatars">
+            <span class="avatar a1">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="6.5" cy="5" r="2.5" />
+                <circle cx="6.5" cy="19" r="2.5" />
+                <circle cx="17.5" cy="9" r="2.5" />
+                <path d="M6.5 7.5v9" />
+                <path d="M17.5 11.5c0 3-2.2 4.5-5 4.5H9" />
+              </svg>
+              <span class="sr-only">开源</span>
+            </span>
+            <span class="avatar a2">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8" />
+                <rect x="2.5" y="7.5" width="19" height="4.5" rx="1" />
+                <path d="M12 7.5V21" />
+                <path d="M12 7.5S10.6 3 8.2 3a2.4 2.4 0 0 0 0 4.8H12zM12 7.5S13.4 3 15.8 3a2.4 2.4 0 0 1 0 4.8H12z" />
+              </svg>
+              <span class="sr-only">免费</span>
+            </span>
+            <span class="avatar a3">
+              <svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2.6 4.6 5.6v6.1c0 5 3.1 8.6 7.4 9.7 4.3-1.1 7.4-4.7 7.4-9.7V5.6z" />
+                <path d="m9.2 12.1 2.1 2.1 3.9-4.1" />
+              </svg>
+              <span class="sr-only">本地存储</span>
+            </span>
+          </div>
+          <span class="trust-pill">
+            <span class="trust-star" aria-hidden="true">★</span><span id="heroStreakYes" hidden>连续打卡 <b id="heroStreak">0</b> 天</span><span id="heroStreakNo">从今天开始连续打卡</span>
+          </span>
+        </div>
+
+        <p class="subhead anim" style="--d: .28s">
+          课程、任务、知识、进度与学习数据，在一个沉浸式工作空间中统一管理。数据只存在你自己的浏览器里。
+        </p>
+
+        <ol class="hero-steps anim" style="--d: .34s" aria-label="使用路径：四步，点一下直接去对应的地方">
+          <li><button class="hs-btn" type="button" data-hs-to="period"><b>1</b>设置周期</button></li>
+          <li><button class="hs-btn" type="button" data-hs-to="slots"><b>2</b>安排时段</button></li>
+          <li><button class="hs-btn" type="button" data-hs-to="tracks"><b>3</b>添加模块</button></li>
+          <li><button class="hs-btn" type="button" data-hs-to="check"><b>4</b>每日打卡</button></li>
+        </ol>
+
+        <div class="cta-row">
+          <a class="cta anim" href="#plan" style="--d: .4s"><span>开始学习</span><span class="cta-orb" aria-hidden="true"><svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13" /><path d="m12 5 7 7-7 7" /></svg></span></a>
+          <a class="cta-ghost anim" href="#tracks" style="--d: .46s">查看学习路线</a>
+        </div>
+      </div>
+
+      <div class="hero-right">
+        <!-- v4.0：右栏从「一张概览卡」升级为 Floating Learning Dashboard ——
+             今日进度 / 当前课程 / 连续学习 / 学习时长 / 下一步 / 本地规则建议。
+             所有数字都由已有 state 推导（streak / dayProgress / trackDone / 时段表），
+             不新增任何存储字段。 -->
+        <aside class="hero-card anim" style="--d: .3s" aria-live="polite">
+          <div class="hc-head">
+            <span class="hc-icon" aria-hidden="true">S</span>
+            <p class="hc-label">今日概览<span class="hc-date" id="heroCardDate"></span></p>
+            <span class="hc-live" id="hcLive">LIVE</span>
+          </div>
+
+          <p class="hc-day" id="heroDay">—</p>
+          <p class="hc-slots" id="heroSlots">—</p>
+          <div class="hc-bar" aria-hidden="true"><i id="heroBarFill"></i></div>
+
+          <ul class="hc-grid">
+            <li class="hc-cell">
+              <span class="hc-k">连续学习</span>
+              <b class="hc-v" id="hcStreak">—</b>
+            </li>
+            <li class="hc-cell">
+              <span class="hc-k">今日时长</span>
+              <b class="hc-v" id="hcHours">—</b>
+            </li>
+            <li class="hc-cell hc-cell-wide">
+              <span class="hc-k">当前课程</span>
+              <b class="hc-v" id="hcCourse">—</b>
+            </li>
+            <li class="hc-cell hc-cell-wide">
+              <span class="hc-k">下一步</span>
+              <b class="hc-v hc-v-sm" id="hcNext">—</b>
+            </li>
+          </ul>
+
+          <p class="hc-ai" id="hcAi"></p>
+
+          <a class="hc-cta" id="heroCardCta" href="#plan">继续今天 →</a>
+        </aside>
+
+        <footer class="stats">
+          <article class="stat anim" style="--d: .5s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="365" data-decimals="0">0</span><span class="suffix">天</span></div>
+            <div class="stat-label">周期可调</div>
+          </article>
+          <article class="stat anim" style="--d: .58s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="40" data-decimals="0">0</span><span class="suffix">张</span></div>
+            <div class="stat-label">练习图纸</div>
+          </article>
+          <article class="stat anim" style="--d: .66s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M13 6l-2 12"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="0" data-decimals="0">0</span><span class="suffix">个</span></div>
+            <div class="stat-label">纯前端 · 零依赖</div>
+          </article>
+          <article class="stat anim" style="--d: .74s">
+            <div class="stat-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+            <div class="stat-value"><span class="num" data-target="100" data-decimals="0">0</span><span class="suffix">%</span></div>
+            <div class="stat-label">本地存储</div>
+          </article>
+        </footer>
+      </div>
+    </main>
+
+    <!-- ---------- Hero bottom bar ---------- -->
+    <footer class="hero-bar anim" style="--d: .8s">
+      <span class="hb-tag">开源 · 免费 · 本地存储</span>
+      <span class="hb-mid"><span class="hb-dot" aria-hidden="true">●</span><span class="hb-text" id="hbPeriod"></span></span>
+      <a class="scroll-cue" href="#plan">
+        <span class="cue-text" id="cueText">学习计划</span>
+        <span class="cue-arrow" aria-hidden="true"></span>
+      </a>
+    </footer>
+  </div>
+</div>
+
+<!-- mobile overlay + sheet -->
+<div class="overlay" id="overlay" hidden></div>
+<nav class="sheet" id="mobileMenu" hidden aria-label="移动端导航">
+  <a class="sheet-link is-active" href="#home">首页</a>
+  <a class="sheet-link" href="#plan">学习</a>
+  <a class="sheet-link" href="#tracks">课程</a>
+  <a class="sheet-link" href="#repo">知识库</a>
+  <a class="sheet-link" href="#stats">数据</a>
+  <a class="sheet-link" href="#journal">复盘</a>
+  <a class="sheet-signin" href="#board">开始学习</a>
+</nav>
+
+<!-- ==================================================================
+     v4.0 工具层浮层：搜索 / 通知 / 学习档案
+     三层共用一个 .tb-scrim 遮罩，Esc 或点遮罩关闭
+     ================================================================== -->
+<div class="tb-wrap" id="tbSearchWrap" hidden>
+  <div class="tb-scrim" data-tb-close></div>
+  <div class="cmd" role="dialog" aria-modal="true" aria-label="全站搜索">
+    <div class="cmd-head">
+      <svg class="cmd-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20.3 20.3-3.9-3.9" /></svg>
+      <input class="cmd-input" id="cmdInput" type="search" placeholder="搜任务、图纸、复盘、资料、区块…" aria-label="搜索关键词" autocomplete="off" />
+      <button class="cmd-x" type="button" data-tb-close aria-label="关闭搜索">Esc</button>
+    </div>
+    <ul class="cmd-list" id="cmdList" role="listbox" aria-label="搜索结果"></ul>
+    <div class="cmd-foot" id="cmdFoot"></div>
+  </div>
+</div>
+
+<div class="tb-wrap tb-wrap-pop" id="tbNoticeWrap" hidden>
+  <div class="tb-scrim" data-tb-close></div>
+  <div class="pop" role="dialog" aria-modal="true" aria-label="通知">
+    <div class="pop-head"><h4 class="pop-title">通知</h4><span class="pop-sub" id="ntSub"></span></div>
+    <ul class="nt-list" id="ntList"></ul>
+  </div>
+</div>
+
+<div class="tb-wrap tb-wrap-pop" id="tbUserWrap" hidden>
+  <div class="tb-scrim" data-tb-close></div>
+  <div class="pop" role="dialog" aria-modal="true" aria-label="学习档案">
+    <div class="pop-head"><h4 class="pop-title">学习档案</h4><span class="pop-sub">只存在这台设备</span></div>
+    <div class="pf-top">
+      <span class="pf-av" id="pfAv">学</span>
+      <div class="pf-meta">
+        <input class="pf-name" id="pfName" type="text" maxlength="12" placeholder="你的名字 / 昵称" aria-label="昵称" />
+        <p class="pf-hint">头像取名字首字，底色随名字定 —— 不传图、不上网。</p>
+      </div>
+    </div>
+    <div class="pf-stats" id="pfStats"></div>
+    <div class="pf-swap" id="pfSwap" role="group" aria-label="头像配色"></div>
+    <div class="pf-foot">
+      <button class="tt-btn" type="button" id="pfExport">↓ 导出 JSON</button>
+      <button class="tt-btn" type="button" id="pfImport">↑ 导入 JSON</button>
+    </div>
+    <p class="pf-note">导出的是学习数据（计划、打卡、复盘、链接），不含 API Key。</p>
+  </div>
+</div>
+
+
+<!-- ==================================================================
+     REGION 2 — PLAN BOARD (scroll region)
+     ================================================================== -->
+<section class="plan" id="plan">
+  <div class="plan-wrap">
+
+    <div class="sec-giant" aria-hidden="true"><span class="gi">ORCHESTRATE</span></div>
+
+    <p class="sec-meta">
+      <span>SEC 02 / 07 · PLAN BOARD · v4.0.0</span>
+      <i class="sm-rule"></i>
+      <span class="sm-local">LOCAL ONLY</span>
+    </p>
+
+    <header class="plan-head reveal" data-zone="plan">
+      <p class="eyebrow">Plan Board · 学习计划板</p>
+      <h2 class="plan-title"><span class="line" id="planTitle">Plan</span></h2>
+      <p class="plan-sub" id="planSub"></p>
+      <div class="today-bar" id="todayBar"></div>
+
+      <!-- 空白模板态专属引导：默认隐藏，EMPTY_TEMPLATE=true（发布版）时由 JS 显示 -->
+      <div class="first-step" id="firstStep" hidden>
+        <span class="fs-tag">第一步</span>
+        <span class="fs-text">先定周期，再添学习线 —— 用右边「⚙ 计划周期」设好起止日期，用「✎ 编辑计划」加第一条学习线。</span>
+        <button class="fs-btn" type="button" id="fsGo">去设置周期</button>
+      </div>
+
+      <!-- v0.7 今日待办：今天要做的时段 + 一键勾选，放最顶上，打卡不用往下滚 -->
+      <div class="today-todo" id="todayTodo"></div>
+
+      <!-- 备份提醒：隔太久没导出 JSON 时出现，可关闭 -->
+      <div class="backup-tip" id="backupTip" hidden>
+        <span class="bt-icon" aria-hidden="true">!</span>
+        <span class="bt-text" id="btText"></span>
+        <button class="bt-close" type="button" id="btClose" aria-label="关闭备份提醒">×</button>
+      </div>
+
+      <div class="plan-legend">
+        <span class="lg lg-study" id="lgStudy"><i></i>学习</span>
+        <span class="lg lg-rest" id="lgRest"><i></i>休息</span>
+        <span class="lg lg-done"><i></i>已完成</span>
+      </div>
+    </header>
+
+    <!-- ---------- Progress board ---------- -->
+    <div class="board" id="board">
+      <article class="metric reveal">
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg></div>
+        <div class="metric-value" id="mDay">—</div>
+        <div class="metric-label">周期进度</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.3 2.3 2.3 4.7-5"/></svg></div>
+        <div class="metric-value" id="mStudy">0<span class="mu">/10</span></div>
+        <div class="metric-label">学习日已打卡</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+        <div class="metric-value" id="mSlot">0<span class="mu">段</span></div>
+        <div class="metric-label">累计打卡时段</div>
+      </article>
+      <article class="metric reveal">
+        <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3-1.5 4-3 6-1.6 2.1-2 4.2-1 6.2 1 2 2.6 3.3 4.7 3.6 2.6.4 5-.7 6-3 .9-2.1.3-4.6-1.3-6.6-.4 1-1.4 1.8-2.6 1.8-.4-3 0-6 3-8z"/></svg></div>
+        <div class="metric-value" id="mStreak">0<span class="mu">天</span></div>
+        <div class="metric-label">连续打卡</div>
+      </article>
+    </div>
+
+    <!-- ---------- Selected day detail ---------- -->
+    <div class="day-panel reveal" id="dayPanel">
+      <!-- 模块级编辑开关（v4.1）：只管「学习日」这一块，跟课程那栏互不牵连 -->
+      <div class="mod-bar">
+        <button class="tt-btn" type="button" id="dayEditToggle" aria-pressed="false"
+                aria-controls="timeline">✎ 编辑</button>
+        <span class="mod-hint" id="dayEditHint"></span>
+      </div>
+
+      <header class="dp-head">
+        <div class="dp-left">
+          <p class="dp-kicker" id="dpKicker">—</p>
+          <h3 class="dp-title" id="dpTitle">—</h3>
+        </div>
+        <span class="dp-badge" id="dpBadge">休息</span>
+      </header>
+
+      <div class="tl-head" id="tlHead"></div>
+      <ol class="timeline" id="timeline"></ol>
+
+      <div class="review">
+        <h4 class="review-title">当日复盘 · 三问</h4>
+        <p class="review-hint">只记三件事，不写长篇。完成主线再补，别把复盘变成负担。</p>
+        <div class="review-grid">
+          <label class="rv-field">
+            <span>完成了什么</span>
+            <textarea id="rvDone" rows="3" placeholder="例：今天那两小时把第三章例题过完了，笔记也整完了"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>卡在哪里</span>
+            <textarea id="rvStuck" rows="3" placeholder="例：第二题卡在公式变形，明天先把这一节重看一遍"></textarea>
+          </label>
+          <label class="rv-field">
+            <span>明天先做什么</span>
+            <textarea id="rvNext" rows="3" placeholder="例：先把今天卡住的那节补上，再往后推一节"></textarea>
+          </label>
+        </div>
+        <p class="save-hint" id="saveHint">随打随存，存在本机浏览器里</p>
+      </div>
+    </div>
+
+
+    <!-- ---------- 计划周期（可自定义） ---------- -->
+    <div class="cal-block reveal">
+      <div class="block-head">
+        <h3 class="block-title" id="calTitle">计划周期总览</h3>
+        <p class="block-hint">点任意一天，展开当天的时间轴和复盘</p>
+        <div class="period-bar">
+          <button class="tt-btn" type="button" id="periodToggle" aria-expanded="false"
+                  aria-controls="periodPanel">⚙ 计划周期</button>
+          <span class="period-brief" id="periodBrief"></span>
+        </div>
+      </div>
+
+      <div class="period" id="periodPanel" hidden>
+        <div class="pd-grid">
+          <label class="pd-field">
+            <span class="pd-label">开始日期</span>
+            <input class="pd-input" type="date" id="pdStart" />
+          </label>
+          <label class="pd-field">
+            <span class="pd-label">结束日期</span>
+            <input class="pd-input" type="date" id="pdEnd" />
+          </label>
+          <div class="pd-field">
+            <span class="pd-label">快捷区间</span>
+            <div class="pd-quick">
+              <button class="pd-chip" type="button" data-pd-quick="thisYear">今年</button>
+              <button class="pd-chip" type="button" data-pd-quick="nextYear">明年</button>
+              <button class="pd-chip" type="button" data-pd-quick="thisMonth">本月</button>
+              <button class="pd-chip" type="button" data-pd-quick="season">本学年</button>
+              <button class="pd-chip" type="button" data-pd-quick="quarter">近 90 天</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">每周休息日<span class="pd-tip">默认不预设，由你勾选；不勾的就是学习日</span></span>
+          <div class="pd-week" id="pdWeek"></div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">额外休息日<span class="pd-tip">法定节假日、寒暑假等</span></span>
+          <div class="pd-add">
+            <input class="pd-input" type="date" id="pdRestDate" />
+            <button class="pd-chip pd-add-btn" type="button" data-pd-add="rest">＋ 加休息日</button>
+          </div>
+          <div class="pd-list" id="pdRestList"></div>
+        </div>
+
+        <div class="pd-block">
+          <span class="pd-label">调休学习日<span class="pd-tip">本来是周末、但那天要学</span></span>
+          <div class="pd-add">
+            <input class="pd-input" type="date" id="pdWorkDate" />
+            <button class="pd-chip pd-add-btn" type="button" data-pd-add="work">＋ 加学习日</button>
+          </div>
+          <div class="pd-list" id="pdWorkList"></div>
+        </div>
+
+        <div class="pd-foot">
+          <span class="pd-stat" id="periodStat"></span>
+          <button class="mb mb-primary" type="button" data-pd-act="apply">应用</button>
+          <button class="mb mb-ghost" type="button" data-pd-act="cancel">取消</button>
+        </div>
+      </div>
+
+      <div class="cal" id="cal"></div>
+    </div>
+
+    <!-- ---------- AI 学习助手（v4.0 · BYOK，未填 Key 走本地规则） ---------- -->
+    <section class="ai-sec" id="ai">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">ASSIST</span></div>
+
+      <p class="sec-meta">
+        <span>SEC 03 / 07 · AI ASSISTANT</span>
+        <i class="sm-rule"></i>
+        <span class="sm-local">LOCAL ONLY</span>
+      </p>
+      <div class="block-head reveal">
+        <p class="eyebrow">Assistant</p>
+        <h3 class="block-title">AI 学习助手 · 下一步该干什么</h3>
+        <p class="block-sub">
+          它读的是你本机的打卡结构：当前阶段、最近 7 天的时段数、连续天数、今日待办。
+          <b>复盘全文默认不发送</b>，要发得你逐次同意。没填 Key 也能用 —— 默认走本地规则引擎。
+        </p>
+      </div>
+
+      <div class="ai-card reveal">
+        <div class="ai-top">
+          <span class="ai-badge" id="aiBadge">本地规则引擎</span>
+          <span class="ai-when" id="aiWhen"></span>
+        </div>
+
+        <p class="ai-out" id="aiOut" aria-live="polite"></p>
+
+        <div class="ai-acts">
+          <button class="mb mb-primary" type="button" id="aiGo">开始学习</button>
+          <button class="mb mb-ghost" type="button" id="aiPlan">让 AI 帮我安排</button>
+          <button class="tt-btn" type="button" id="aiCfgBtn" aria-expanded="false" aria-controls="aiCfg">⚙ 连接设置</button>
+        </div>
+
+        <div class="ai-cfg" id="aiCfg" hidden>
+          <label class="pd-field">
+            <span class="pd-label">DeepSeek API Key<span class="pd-tip">只存在这台设备；留空则一直用本地规则</span></span>
+            <input class="pd-input" type="password" id="aiKey" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <div class="ai-cfg-row">
+            <label class="ai-check"><input type="checkbox" id="aiRemember" /> 记住这台设备<span class="ai-check-tip">会明文存进本机浏览器，公用电脑别勾</span></label>
+            <label class="ai-check"><input type="checkbox" id="aiSendReviews" /> 允许发送复盘全文<span class="ai-check-tip">默认不发</span></label>
+          </div>
+
+          <div class="ai-cfg-row">
+            <label class="pd-field ai-model">
+              <span class="pd-label">模型</span>
+              <select class="pd-input" id="aiModel">
+                <option value="deepseek-chat">deepseek-chat</option>
+                <option value="deepseek-reasoner">deepseek-reasoner</option>
+              </select>
+            </label>
+            <span class="ai-cfg-note" id="aiCfgNote"></span>
+          </div>
+
+          <div class="ai-cfg-foot">
+            <button class="mb mb-primary" type="button" id="aiSave">保存</button>
+            <button class="mb mb-ghost" type="button" id="aiClear">清除 Key</button>
+            <span class="ai-priv">发送内容：阶段名 · 最近 7 天时段数 · 连续天数 · 今日待办数</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Four tracks · 顶部标签翻页 ---------- -->
+    <section class="tracks" id="tracks">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">SYSTEM</span></div>
+
+      <p class="sec-meta">
+        <span>SEC 04 / 07 · TRACKS</span>
+        <i class="sm-rule"></i>
+        <span class="sm-local">LOCAL ONLY</span>
+      </p>
+      <div class="block-head reveal">
+      <p class="eyebrow">Tracks</p>
+      <h3 class="block-title">学习模块 · 随便加、随便改</h3>
+      <p class="block-sub">
+        出厂带四条起步线：专业课、Python、AI、英语 —— 每条线有阶段大纲、配套资源、练习图纸和本线笔记。
+        <b>这些都只是起点</b>：点「编辑计划」，模块和任务随你增删改，加成你自己的课程表、考证计划、读书清单都行。
+      </p>
+      </div>
+
+      <div class="track-tools reveal" id="trackTools">
+        <button class="tt-btn tt-primary" type="button" data-tool="edit" id="editToggle"
+                aria-pressed="false">✎ 编辑计划</button>
+        <button class="tt-btn" type="button" data-tool="export">↓ 导出 JSON</button>
+        <button class="tt-btn" type="button" data-tool="import">↑ 导入 JSON</button>
+        <button class="tt-btn tt-danger" type="button" data-tool="reset">恢复默认</button>
+        <input type="file" id="planFile" accept="application/json,.json" hidden>
+      </div>
+      <p class="track-tools-hint" id="toolsHint"></p>
+
+      <div class="track-tabs reveal" id="trackTabs" role="tablist" aria-label="学习模块"></div>
+      <div class="track-panels reveal" id="trackPanels"></div>
+    </section>
+
+    <!-- ---------- 资源仓库 ---------- -->
+    <section class="repo" id="repo">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">VAULT</span></div>
+
+      <p class="sec-meta">
+        <span>SEC 05 / 07 · LIBRARY</span>
+        <i class="sm-rule"></i>
+        <span class="sm-local">LOCAL ONLY</span>
+      </p>
+      <div class="block-head reveal">
+        <p class="eyebrow">Library</p>
+        <h3 class="block-title">资源仓库</h3>
+        <p class="block-sub">
+          两个仓库：上面是随站附带的 <b>CAD 练习图纸仓库</b>，40 张国标图随时取用；
+          下面是 <b>我的资料仓库</b> —— 课程链接、图片、PDF、笔记都往这儿放，按主题归好，下次一眼就能翻到。
+        </p>
+      </div>
+
+      <!-- ============ A. CAD 图纸仓库 ============ -->
+      <div class="repo-block reveal" id="cadBlock">
+        <div class="rb-head">
+          <button class="tt-btn" type="button" id="cadEditToggle" aria-pressed="false">✎ 编辑</button>
+          <h4 class="rb-title">CAD 练习图纸仓库 <span class="rb-count" id="galCount"></span></h4>
+          <div class="rb-acts">
+            <button class="tt-btn" type="button" id="cadRestore" hidden>↺ 恢复全部</button>
+            <button class="tt-btn" type="button" data-gal="zip" id="galZip">↓ 打包下载</button>
+          </div>
+        </div>
+        <p class="mod-hint" id="cadEditHint"></p>
+        <p class="rb-note">
+          国标 A3 图幅 · 10 个图形 × 4 个版本：<b>摹</b>（带尺寸照着画）、<b>临</b>（无尺寸照着临）、
+          <b>默</b>（只给尺寸自己画）、<b>检</b>（标了易错点对照检查）。
+          点缩略图看大图，DXF 用任意 CAD 软件打开就能画。
+        </p>
+
+        <div class="gal-filter" id="galFilter">
+          <input class="tt-input" type="search" id="galSearch" placeholder="搜图号 / 名称 / 知识点…" aria-label="搜索图纸" />
+          <div class="gf-row" id="gfShape"></div>
+          <div class="gf-row" id="gfMode"></div>
+        </div>
+
+        <div class="gal" id="gal"></div>
+      </div>
+
+      <!-- ============ B. 我的资料仓库 ============ -->
+      <div class="repo-block reveal">
+        <div class="rb-head">
+          <h4 class="rb-title">我的资料仓库 <span class="rb-count" id="libCount"></span></h4>
+          <div class="rb-acts">
+            <button class="tt-btn" type="button" data-lib="link">＋ 加链接</button>
+            <button class="tt-btn" type="button" data-lib="pick">↑ 加文件</button>
+            <input type="file" id="libFile" multiple hidden>
+          </div>
+        </div>
+        <p class="mod-hint" id="repoEditHint"></p>
+        <p class="rb-note">
+          链接会跟着「导出 JSON」一起走，换台电脑也还在；
+          本地上传的图片 / 文档只存在这台设备的浏览器里（IndexedDB），不上传、不联网，也<b>不会</b>进 JSON。
+        </p>
+        <p class="rb-note rb-warn" id="libWarn" hidden></p>
+
+        <div class="lib-drop" id="libDrop">
+          <span class="ld-icon" aria-hidden="true">↑</span>
+          <span class="ld-text">把图片 / PDF / 文档拖到这里，或点上面的「加文件」</span>
+        </div>
+
+        <div class="lib" id="lib"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 数据中心 ---------- -->
+    <section class="insight" id="stats">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">SIGNAL</span></div>
+
+      <p class="sec-meta">
+        <span>SEC 06 / 07 · INSIGHTS</span>
+        <i class="sm-rule"></i>
+        <span class="sm-local">LOCAL ONLY</span>
+      </p>
+      <div class="block-head reveal">
+        <p class="eyebrow">Insights</p>
+        <h3 class="block-title">数据中心 · 让坚持看得见</h3>
+        <p class="block-sub">
+          全部数字都来自你自己的打卡记录，只存在本机浏览器里。热力图按「当天主线时段的完成比例」着色，
+          <b>周期之外的日期不参与统计</b>；换周期、换作息模板，这里的口径都会跟着变。
+        </p>
+      </div>
+
+      <!-- 首次打开（一条打卡都没有）时的引导，有数据后自动收起 -->
+      <p class="stat-hint" id="statHint" hidden></p>
+
+      <!-- §9 学习连续性：连续学习 / 最近 7 天 / 最长连续。刻意不做游戏化 ——
+           没有火焰、没有等级、没有「即将断签」的催促，只是把节奏摊开给你看。 -->
+      <div class="streak-strip reveal" id="streakStrip"></div>
+
+      <div class="board" id="statCards">
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c1 3-1.5 4-3 6-1.6 2.1-2 4.2-1 6.2 1 2 2.6 3.3 4.7 3.6 2.6.4 5-.7 6-3 .9-2.1.3-4.6-1.3-6.6-.4 1-1.4 1.8-2.6 1.8-.4-3 0-6 3-8z"/></svg></div>
+          <div class="metric-value" id="sBest">0<span class="mu">天</span></div>
+          <div class="metric-label">最长连续打卡</div>
+        </article>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.3 2.3 2.3 4.7-5"/></svg></div>
+          <div class="metric-value" id="sDays">0<span class="mu">天</span></div>
+          <div class="metric-label">累计学习日</div>
+        </article>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <div class="metric-value" id="sSlots">0<span class="mu">段</span></div>
+          <div class="metric-label">总打卡时段</div>
+        </article>
+        <article class="metric reveal">
+          <div class="metric-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <div class="metric-value" id="sAvg">0<span class="mu">段/天</span></div>
+          <div class="metric-label">日均打卡时段</div>
+        </article>
+      </div>
+
+      <!-- §8 本周学习：按天的小时柱 + 完成度环。
+           小时数只算已勾掉的时段，时长从时段自己的时间区间解出来 —— 不是估的。 -->
+      <div class="stat-block reveal" id="weekBlock">
+        <div class="sb-head">
+          <h4 class="sb-title">本周学习</h4>
+          <span class="sb-note" id="weekNote"></span>
+        </div>
+        <div class="week-wrap">
+          <div class="wk-ring" id="wkRing"></div>
+          <div class="wk-bars" id="weekBars"></div>
+        </div>
+      </div>
+
+      <!-- 年度热力图 -->
+      <div class="stat-block reveal">
+        <div class="sb-head">
+          <h4 class="sb-title">年度热力图</h4>
+          <span class="sb-note" id="hmNote"></span>
+        </div>
+        <div class="hm-scroll">
+          <div class="hm-wrap">
+            <div class="hm-rows" aria-hidden="true"><i>一</i><i>三</i><i>五</i></div>
+            <div class="hm" id="heatmap"></div>
+          </div>
+        </div>
+        <div class="hm-legend">
+          <span class="hm-cap">少</span>
+          <i class="hm-lv l0"></i><i class="hm-lv l1"></i><i class="hm-lv l2"></i><i class="hm-lv l3"></i><i class="hm-lv l4"></i>
+          <span class="hm-cap">多</span>
+        </div>
+      </div>
+
+      <!-- 四条线完成度 -->
+      <div class="stat-block reveal">
+        <div class="sb-head">
+          <h4 class="sb-title">各线完成度</h4>
+          <span class="sb-note">按「学习模块」里勾掉的阶段算</span>
+        </div>
+        <div class="bars" id="trackBars"></div>
+      </div>
+
+      <!-- 打卡趋势 -->
+      <div class="stat-block reveal">
+        <div class="sb-head">
+          <h4 class="sb-title">打卡趋势</h4>
+          <div class="sb-seg" id="trendSeg" role="group" aria-label="趋势粒度">
+            <button class="seg-btn is-on" type="button" data-trend="week" aria-pressed="true">按周</button>
+            <button class="seg-btn" type="button" data-trend="month" aria-pressed="false">按月</button>
+          </div>
+        </div>
+        <p class="trend-note" id="trendNote"></p>
+        <div class="trend" id="trend"></div>
+      </div>
+    </section>
+
+    <!-- ---------- 复盘墙 ---------- -->
+    <section class="journal" id="journal">
+      <div class="sec-giant" aria-hidden="true"><span class="gi">REFLECT</span></div>
+
+      <p class="sec-meta">
+        <span>SEC 07 / 07 · JOURNAL</span>
+        <i class="sm-rule"></i>
+        <span class="sm-local">LOCAL ONLY</span>
+      </p>
+      <div class="block-head reveal">
+        <p class="eyebrow">Journal</p>
+        <h3 class="block-title">复盘墙 · 把每天那三句话攒起来</h3>
+        <p class="block-sub">
+          这里汇总你在计划板里写过的每一份当日复盘 —— 做完什么、卡在哪、明天先做什么。
+          倒序排列、按周分组，能搜关键词，也能一键导出成 Markdown 贴进笔记软件。
+        </p>
+      </div>
+
+      <div class="track-tools journal-tools reveal" id="jTools">
+        <input class="tt-input" type="search" id="jSearch" placeholder="搜复盘内容…" aria-label="搜索复盘内容" />
+        <button class="tt-btn" type="button" id="jStuck" aria-pressed="false">只看有卡点</button>
+        <button class="tt-btn tt-primary" type="button" id="jExport">↓ 导出 Markdown</button>
+      </div>
+      <p class="track-tools-hint" id="jHint"></p>
+
+      <div class="journal-list reveal" id="journalList"></div>
+    </section>
+
+    <footer class="plan-foot">
+      <p class="foot-strong">这是一个通用的学习计划板：先定周期，再定每天几点做什么，最后把要学的东西排成模块。</p>
+      <p class="foot-strong">出厂那四条线（专业课 / Python / AI / 英语）只是起步模板，不是给你规定的 —— 全都可以换掉。</p>
+      <p>周期想多长就多长：几天、一个学期、一整年都行。休息日按星期设，节假日和调休可以单独加。</p>
+      <p>每天的作息也是一个模版：学习日和休息日各一套，几点做什么、哪几段算主线，都能自己改。</p>
+      <p>配套 40 张国标练习图纸：10 个图形 × 摹 / 临 / 默 / 检 各一张，DXF 格式，用任意 CAD 软件都能打开。</p>
+      <p><b>整套计划都是模板，不是定死的。</b>点「编辑计划」增删改模块、任务、时段；
+        点「计划周期」改起止日期和休息规则；
+        用「导出 JSON」备份或分享给别人，用「导入 JSON」在别的电脑上恢复。</p>
+      <p>所有内容只存在你自己这台设备的浏览器里（localStorage），不上传、不联网、不需要注册。</p>
+      <p id="footPeriod"></p>
+      <p class="foot-share"><button class="tt-btn" type="button" id="shareLink">🔗 复制本站链接</button></p>
+    </footer>
+  </div>
+</section>
+
+<!-- 大图预览（图纸 / 图片通用） -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lb-x" type="button" id="lbX" aria-label="关闭预览">×</button>
+  <div class="lb-stage"><img class="lb-img" id="lbImg" alt="" /></div>
+  <div class="lb-bar">
+    <span class="lb-name" id="lbName"></span>
+    <span class="lb-meta" id="lbMeta"></span>
+    <a class="mb mb-primary" id="lbDl" download>↓ 下载</a>
+  </div>
+</div>
+
+<script src="main.js"></script>
+</body>
+</html>

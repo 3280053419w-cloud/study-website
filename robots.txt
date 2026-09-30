@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# 单页应用，只有首页需要收录
+Sitemap: https://3280053419w-cloud.github.io/study-website/sitemap.xml
