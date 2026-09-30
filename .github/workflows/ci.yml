@@ -1,0 +1,50 @@
+name: CI
+
+# 两道门禁：
+#   sanity  —— 不需要浏览器，几秒跑完：语法检查 + 静态不变量（scripts/verify_static.mjs）
+#   browser —— 真实无头浏览器验收（scripts/verify_browser.mjs，51 项）：上线要件真取得到、
+#              CSP 不误伤、skip link 与焦点圈禁真能用、导入加固不误伤好文件、空模板态真的空白。
+#
+# 为什么要有 browser 这道（方案文档 P1-8 的缺口）：2026-09-30 那批「上线公网」改动原先
+# 只有静态检查，**从没在真实浏览器里跑过**；而原来的浏览器验收写死了本机 Edge 绝对路径，
+# 只能在米线那台机器上跑。现在浏览器路径与驱动解析都收进 scripts/lib/browser.mjs，
+# 于是入库的这套验收在 ubuntu-latest（自带 Google Chrome）上也能跑。
+# 更深的 _build/verify_v3.mjs（228 项）仍依赖本机路径，只在本地跑。
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JS 语法检查
+        run: node --check main.js
+
+      - name: 静态不变量校验
+        run: node scripts/verify_static.mjs
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'          # 全局 WebSocket / fetch
+
+      # puppeteer-core 是工程侧的开发依赖，不进发布产物、不碰源码的零依赖约束。
+      # runner 自带 Google Chrome；若镜像变动，可用 CHROME_PATH 指定浏览器。
+      - name: 装浏览器驱动（只给验收用）
+        run: npm install --prefix scripts --no-audit --no-fund puppeteer-core
+
+      - name: 浏览器验收（51 项）
+        run: node scripts/verify_browser.mjs

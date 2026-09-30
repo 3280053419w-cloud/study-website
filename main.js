@@ -237,9 +237,12 @@
     reviews: {},
     notes: {},                 /* { [trackId]: [{ text, ts }] } */
     links: [],                 /* 资料仓库里的链接卡 */
+    /* v4.2：随站附带的 40 张练习图纸里，被米线「删减」掉的（存 file 键，如 'D01-MH'）。
+       文件本身还在硬盘上，这里只是不显示 —— 所以随时「恢复全部」就能全回来。 */
+    hideSheets: [],
     track: '',
     steps: {},                 /* { [trackId]: { [stepSid]: true } } */
-    editing: false,
+    edit: { day: false, tracks: false, repo: false },   /* 模块级编辑开关：学习日 / 课程 / 资源库 各开各的 */
     lastExport: 0,             /* 上次导出 JSON 的时间戳 —— 用于「该备份了」提醒 */
     backupMuted: 0,            /* 用户手动关掉备份提醒的时间戳 */
     plan: defaultPlan()
@@ -248,6 +251,46 @@
   /* 当前生效的计划 —— 永远从 state 读，不读常量 */
   function tracks() {
     return state.plan.tracks;
+  }
+
+  /* ----------------------------------------------------------------
+     模块级编辑开关（v4.1）
+     原来只有一个 state.editing：点「编辑计划」会把学习日、课程、资源库
+     一起拖进编辑态，在课程那栏点一下，计划板的时段就冒出一排 ↑↓✎×。
+     现在改成三个开关，各按各的按钮，谁也别管谁。
+     ---------------------------------------------------------------- */
+  function editOn(which) {
+    /* v4.3：米线要求删掉「我的资料仓库」左上角那颗「✎ 编辑」按钮 ——
+       按钮没了，改链接 / 删卡片的动作就必须常显（否则用户再也删不掉自己的资料）。 */
+    if (which === 'repo') return true;
+    return !!(state.edit && state.edit[which]);
+  }
+
+  function editHint(which) {
+    if (which === 'day') {
+      return '编辑中：点每一段右侧的 ✎ 改内容，↑ ↓ 调顺序，× 删除；最下面「＋ 给…模版加一段」加时段。';
+    }
+    if (which === 'repo') {
+      return '编辑中：卡片上的「编辑」改链接，× 移除；上面「＋ 加链接」「↑ 加文件」随时都能用。';
+    }
+    if (which === 'cad') {
+      return '编辑中：点图纸左上角的 × 把它从仓库里收起来；顶上的「↺ 恢复全部」一键全放回来。文件本身不会被删掉。';
+    }
+    return '编辑中：点模块 / 任务上的 ✎ 改内容，↑ ↓ 调顺序，× 删除。周期在「计划周期」里改。';
+  }
+
+  function editBtn(which) {
+    if (which === 'day') return el('dayEditToggle');
+    if (which === 'repo') return el('repoEditToggle');
+    if (which === 'cad') return el('cadEditToggle');
+    return el('editToggle');
+  }
+
+  function editHintBox(which) {
+    if (which === 'day') return el('dayEditHint');
+    if (which === 'repo') return el('repoEditHint');
+    if (which === 'cad') return el('cadEditHint');
+    return el('toolsHint');
   }
 
   function trackById(id) {
@@ -384,6 +427,9 @@
 
       if (typeof saved.lastExport === 'number') state.lastExport = saved.lastExport;
       if (typeof saved.backupMuted === 'number') state.backupMuted = saved.backupMuted;
+      if (Array.isArray(saved.hideSheets)) {
+        state.hideSheets = saved.hideSheets.filter(function (k) { return typeof k === 'string' && k; });
+      }
 
       if (saved.track && trackById(saved.track)) state.track = saved.track;
       if (typeof saved.sel === 'string' && indexOfDate(saved.sel) >= 0) state.sel = saved.sel;
@@ -422,6 +468,7 @@
         openMonths: state.openMonths,
         track: state.track,
         links: state.links,
+        hideSheets: state.hideSheets,
         lastExport: state.lastExport,
         backupMuted: state.backupMuted
       }));
@@ -825,7 +872,7 @@ void main() {
       }) || cv.getContext('experimental-webgl');
     } catch (e) { gl = null; }
     if (!gl) {
-      /* 没有 WebGL（罕见）：隐藏画布，底色由 CSS 的 #05010a 兜住 */
+      /* 没有 WebGL（罕见）：隐藏画布，底色由 CSS 的 --crt-base #07060d 兜住 */
       cv.style.display = 'none';
       return;
     }
@@ -838,8 +885,26 @@ void main() {
             「黑底 + 一点流光」，底色不能再抢戏（实测：压到 0.55 时画面
             最亮处的蓝通道仍由等离子体贡献 240，比流光带还高）；
             「流光」由着色器里新增的两道光带提供（见 CRT_FRAG_SHADER 尾部）。 */
+    /* v4.0 低功耗降档 —— 依据是 _build/_v4_perf.mjs 的实测数据：
+       背景着色器本身已经很省：30fps 上限 + DPR 1 + 0.6 倍分辨率渲染，
+       在 1x / 4x / 6x CPU 节流下出图都稳在 30.4fps、rAF 帧间隔 p95 = 8.4ms；
+       三团 blur(90px) 光晕只做 transform 动画（will-change: transform）走合成器，
+       实测代价 ≈ 0fps（120.0 → 119.2，在噪声内）。
+       所以这里**不做激进降级**，只对「明确偏弱」的设备降一档，
+       并且仍然保留 prefers-reduced-motion 这条硬通道（实测直接停循环、出图 0fps）。 */
+    function weakDevice() {
+      var cores = navigator.hardwareConcurrency || 8;
+      var mem = navigator.deviceMemory || 8;
+      var coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+      var small = Math.min(window.innerWidth || 9999, window.innerHeight || 9999) <= 480;
+      return cores <= 4 || mem <= 4 || (coarse && small);
+    }
+    var WEAK = weakDevice();
+    var FPS = WEAK ? 20 : 30;
+    var SCALE = WEAK ? 0.45 : 0.6;
+
     var P = {
-      color: '#8b5cf6', backgroundColor: '#05010a',
+      color: '#8b5cf6', backgroundColor: '#07060d',
       speed: 0.5, curvature: 0.25,
       scanlineStrength: 0.25, scanlineFrequency: 200,
       waveAmplitude: 0.3, waveFrequency: 2.5,
@@ -847,9 +912,9 @@ void main() {
       noise: 0.1, vignette: 0,
       brightness: 0.4, pixelation: 1, rgbShift: 0.015,
       mouseReact: true, mouseStrength: 0.5,
-      dpr: 1, fps: 30
+      dpr: 1, fps: FPS
     };
-    var RENDER_SCALE = 0.6; /* 降分辨率渲染，CSS 放大回全屏 */
+    var RENDER_SCALE = SCALE; /* 降分辨率渲染，CSS 放大回全屏（v4.0：弱设备降到 0.45） */
 
     function compile(type, src) {
       var sh = gl.createShader(type);
@@ -1047,6 +1112,7 @@ void main() {
       sheet.hidden = false;
       overlay.hidden = false;
       document.body.classList.add('menu-open');
+      trapFocus(sheet, burger);
     }
 
     function close() {
@@ -1056,6 +1122,7 @@ void main() {
       sheet.hidden = true;
       overlay.hidden = true;
       document.body.classList.remove('menu-open');
+      releaseFocus();
     }
 
     burger.addEventListener('click', function () {
@@ -1086,6 +1153,48 @@ void main() {
      - .sec-giant 大幅揭开进场（CSS 里 clip-path + translateY 负责）；
      - .sec-giant 叠加 rAF 节流的轻 parallax（写 translate 属性，不与 transform 抢）；
      - reduce / 无 IntersectionObserver → 全部立即呈现（CSS reduce 块兜底静帧）。 */
+  /* §17 Page transition：站内锚点跳转的「换页」手感。
+     本站是单页锚点导航，跳转原本是瞬间闪现 —— 加一层极短的暗幕把这下瞬移盖住。
+     170ms 进 / 280ms 出，不位移、不缩放、不做视差和 3D。
+     prefers-reduced-motion 下整个不装。
+     ⚠ 必须放行自己带滚动逻辑的链接：`#tbGo` 要精确滚到第一个没勾的待办再聚焦，
+     被这里拦掉就会退化成滚到整块「今日待办」。凡是带 data-no-transition 的都不拦。 */
+  function initPageTransition() {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    var veil = document.createElement('div');
+    veil.className = 'page-veil';
+    veil.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(veil);
+
+    var busy = false;
+
+    document.addEventListener('click', function (e) {
+      if (busy) return;
+      if (e.defaultPrevented || e.button !== 0 ||
+          e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var a = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
+      if (!a || a.hasAttribute('data-no-transition')) return;
+      var href = a.getAttribute('href');
+      if (!href || href === '#' || href === '#home') return;
+      var target = document.querySelector(href);
+      if (!target) return;
+
+      e.preventDefault();
+      busy = true;
+      veil.classList.add('is-on');
+      window.setTimeout(function () {
+        target.scrollIntoView({ behavior: 'auto', block: 'start' });
+        /* file:// 直接打开时 replaceState 可能被拒，不影响滚动 */
+        try { history.replaceState(null, '', href); } catch (err) { /* 忽略 */ }
+        window.setTimeout(function () {
+          veil.classList.remove('is-on');
+          window.setTimeout(function () { busy = false; }, 300);
+        }, 100);
+      }, 180);
+    }, true);
+  }
+
   function initReveals() {
     var reduce = !!(window.matchMedia &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -1111,11 +1220,20 @@ void main() {
       return;
     }
 
-    var io = new IntersectionObserver(function (entries) {
+    /* v4.0：threshold 从 0.1 改为 0。
+       原因：threshold 是「占元素自身面积的比例」，而 #trackPanels 这类长区块
+       在满编数据下有 4000+px（近 5 屏）。10% 的阈值意味着要露出 ~400px 才触发，
+       从导航点「学习模块」直达时只露 ~400px，还要再被 rootMargin 削掉 8%，
+       比值卡在 0.09 —— 整块学习模块会一直停在 opacity:0，看上去就是一片空白。
+       注意不能按「元素当前高度」分档观察：initReveals() 跑在 renderAll() 之前
+       （main.js:4604 / main.js:4607），那一刻面板还是空的，高度判不出来。
+       改 0 之后，短卡片只是早露 ~15–40px，观感与原来几乎无差（rootMargin 仍削 8%）。 */
+    function handle(entries, obs) {
       entries.forEach(function (e) {
-        if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
+        if (e.isIntersecting) { show(e.target); obs.unobserve(e.target); }
       });
-    }, { threshold: 0.1, rootMargin: '0px 0px -8% 0px' });
+    }
+    var io = new IntersectionObserver(handle, { threshold: 0, rootMargin: '0px 0px -8% 0px' });
     Array.prototype.forEach.call(items, function (n) { io.observe(n); });
 
     /* parallax：仅大标题，±36px 内，离视口中心越远越慢地反向漂 */
@@ -1265,6 +1383,79 @@ void main() {
     /* 卡内 CTA 统一回计划板（日期锚点格式未核实，不猜） */
     if (cta) cta.setAttribute('href', '#plan');
 
+    /* ----------------------------------------------------------------
+       v4.0：右栏升级为 Floating Learning Dashboard（连续学习 / 今日时长 /
+       当前课程 / 下一步 / 建议句）。全部由已有 state 推导 —— streak()、
+       dayProgress()、trackById(state.track)、trackDone()、state.plan.slots，
+       不新增任何存储字段，也不发任何请求。
+       ---------------------------------------------------------------- */
+    var stkEl = el('hcStreak');
+    if (stkEl) stkEl.textContent = s > 0 ? s + ' 天' : '还没开始';
+
+    /* slotHours / fmtH 已提到模块作用域 —— 首屏仪表盘的「今日时长」和计划板顶部的
+       「今日目标」现在共用同一套折算算法，免得两边各写一份、口径漂移。 */
+
+    var todayIdx = indexOfDate(tKey);
+    var todayDay = todayIdx >= 0 ? days()[todayIdx] : null;
+    var isRestToday = !!(todayDay && todayDay.rest);
+    var todayCore = todayDay ? slotsOf(todayDay).filter(function (x) { return x.kind === 'core'; }) : [];
+    if (!todayCore.length && todayDay) todayCore = slotsOf(todayDay);
+
+    var hoursEl = el('hcHours');
+    if (hoursEl) {
+      var doneH = 0, planH = 0;
+      for (var q = 0; q < todayCore.length; q++) {
+        var hh = slotHours(todayCore[q]);
+        planH += hh;
+        if (isChecked(tKey, todayCore[q].id)) doneH += hh;
+      }
+      hoursEl.textContent = planH > 0
+        ? fmtH(doneH) + ' / ' + fmtH(planH)
+        : (todayDay ? '今天没排时段' : '—');
+    }
+
+    var courseEl = el('hcCourse');
+    var nextEl = el('hcNext');
+    var aiEl = el('hcAi');
+    var nextName = '';
+    var cur = trackById(state.track) || tracks()[0] || null;
+    if (cur) {
+      var curDone = trackDone(cur);
+      var curTotal = cur.steps ? cur.steps.length : 0;
+      if (courseEl) courseEl.textContent = cur.name + (curTotal ? ' · ' + curDone + '/' + curTotal + ' 阶' : '');
+      var curState = trackState(cur);
+      var nx = null;
+      for (var z = 0; z < (cur.steps || []).length; z++) {
+        if (!curState[cur.steps[z].sid]) { nx = cur.steps[z]; break; }
+      }
+      if (nx) nextName = (nx.phase ? nx.phase + ' · ' : '') + nx.title;
+      if (nextEl) {
+        nextEl.textContent = nextName || (curTotal ? '这条线已经走完了' : '这条线还没排任务');
+      }
+    } else {
+      if (courseEl) courseEl.textContent = '还没加学习线';
+      if (nextEl) nextEl.textContent = '去「学习模块」加一条';
+    }
+
+    /* 建议句：本地规则，不联网、不编造。
+       顺序＝先看有没有周期 → 再看今天是不是休息日 → 再看今天打卡 → 最后才推下一阶。 */
+    if (aiEl) {
+      var tip;
+      var pr = dayProgress(tKey);
+      if (!all) {
+        tip = '先把计划周期设好，这一期才有起点。';
+      } else if (isRestToday) {
+        tip = '今天排的是休息日，不打卡也不会断连续。想学就往后推一阶。';
+      } else if (pr && pr.total > 0 && pr.done < pr.total) {
+        tip = '今天还有 ' + (pr.total - pr.done) + ' 段主线没打勾，先把最近的那段做完。';
+      } else if (pr && pr.total > 0) {
+        tip = '今天的主线都打完了。' + (nextName ? '顺手推一阶：' + nextName + '。' : '');
+      } else {
+        tip = '今天没排时段，去「计划周期」看看作息模板。';
+      }
+      aiEl.textContent = tip;
+    }
+
     /* 底部信息条：周期区间 */
     var hb = el('hbPeriod');
     if (hb) {
@@ -1286,6 +1477,46 @@ void main() {
     renderBackupTip();
     renderStats();
     renderJournal();
+  }
+
+  /* 勾掉 / 取消一段打卡 → 所有跟打卡有关的视图一起重画。
+     以前「今日待办」只刷自己 + 板子，学习日时间轴压根不刷；时间轴反过来也不刷待办，
+     于是上面勾了、下面没动（米线 2026-09-30 报的问题）。合并到这一处，别再各刷一半。 */
+  function renderChecks() {
+    renderHeroLive();
+    renderBoard();
+    renderToday();
+    renderCal();
+    renderDay();
+    renderStats();
+  }
+
+  /* 重画会整棵换掉 DOM —— 先记下焦点落在哪个 data-sid 上，重画后按 sid 还原。
+     不做的话：点一下勾选框焦点就掉回 body，键盘用户得从头 Tab 一遍。 */
+  function closestSid(node, stop) {
+    while (node && node !== stop) {
+      if (node.getAttribute && node.getAttribute('data-sid') != null) return node.getAttribute('data-sid');
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  function grabCheckFocus(box) {
+    var a = document.activeElement;
+    if (!box || !a || !box.contains(a)) return null;
+    return closestSid(a, box);
+  }
+
+  function restoreCheckFocus(box, sid) {
+    if (!box || !sid) return;
+    var hits = box.querySelectorAll('[data-sid]');
+    for (var i = 0; i < hits.length; i++) {
+      if (hits[i].getAttribute('data-sid') !== sid) continue;
+      var cb = hits[i].tagName === 'INPUT' ? hits[i] : hits[i].querySelector('input[type="checkbox"]');
+      if (!cb) return;
+      try { cb.focus({ preventScroll: true }); } catch (e) { cb.focus(); }
+      return;
+    }
   }
 
   /* ----------------------------------------------------------------
@@ -1317,6 +1548,35 @@ void main() {
   }
 
   /* ----------------------------------------------------------------
+     共用：时段时长折算
+     v4.0：这两个原来是 renderHeroLive 的局部函数，现在首屏仪表盘的「今日时长」
+     和计划板顶部的「今日目标」都要用 —— 提到模块作用域，避免两份算法漂移。
+     ---------------------------------------------------------------- */
+  function slotHours(sl) {
+    var m = /(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/.exec(sl && sl.time ? sl.time : '');
+    if (!m) return 0;
+    var a = (+m[1]) * 60 + (+m[2]);
+    var b = (+m[3]) * 60 + (+m[4]);
+    return b > a ? (b - a) / 60 : 0;
+  }
+
+  function fmtH(h) {
+    if (h <= 0) return '0h';
+    var r = Math.round(h * 10) / 10;
+    return (r % 1 === 0 ? r.toFixed(0) : r.toFixed(1)) + 'h';
+  }
+
+  /* 中文口径的时长（§7 原稿写的是「2h 30min」这种给人读的目标，不是 "2.5h"） */
+  function fmtHM(h) {
+    if (h <= 0) return '0min';
+    var total = Math.round(h * 60);
+    var hh = Math.floor(total / 60), mm = total % 60;
+    if (!hh) return mm + 'min';
+    if (!mm) return hh + 'h';
+    return hh + 'h ' + mm + 'min';
+  }
+
+  /* ----------------------------------------------------------------
      Region 2 — today bar
      ---------------------------------------------------------------- */
   function renderToday() {
@@ -1341,10 +1601,60 @@ void main() {
     var parts = ['今天', '<span class="dot-sep"></span>',
       day.d.replace(/-/g, '.'), day.wd, '<span class="dot-sep"></span>', kind,
       '<span class="dot-sep"></span>', '<span>周期内第 ' + (idx + 1) + ' 天 / 共 ' + totalDays() + ' 天</span>'];
-    if (bar) bar.innerHTML = parts.join(' ');
+
+    /* ---- §7 今日目标 + 当前任务 ----------------------------------------
+       原稿要求计划板顶部给「今日目标 2h 30min + ████ 72%」和「当前任务 + 继续学习 →」。
+       目标不是编的：就是你今天自己排的主线时段总时长；进度是已勾掉的时长占比。
+       休息日没有目标，这一簇整个不出。 */
+    var coreSlots = day.rest ? [] : slotsOf(day).filter(function (sl) { return sl.kind === 'core'; });
+    if (!coreSlots.length && !day.rest) coreSlots = slotsOf(day);
+
+    var goalH = 0, doneH = 0, nextSlot = null;
+    for (var g = 0; g < coreSlots.length; g++) {
+      var gh = slotHours(coreSlots[g]);
+      goalH += gh;
+      if (isChecked(tKey, coreSlots[g].id)) doneH += gh;
+      else if (!nextSlot) nextSlot = coreSlots[g];
+    }
+    var goalPct = goalH > 0 ? Math.round(doneH / goalH * 100) : 0;
+
+    if (goalH > 0) {
+      parts.push('<span class="dot-sep"></span>',
+        '<span class="tb-goal">' +
+          '<span class="tb-goal-k">今日目标</span>' +
+          '<b class="tb-goal-v">' + esc(fmtHM(goalH)) + '</b>' +
+          '<span class="tb-bar" role="img" aria-label="今日目标已完成 ' + goalPct + '%">' +
+            '<i style="width:' + Math.min(100, goalPct) + '%"></i></span>' +
+          '<b class="tb-goal-p">' + goalPct + '%</b>' +
+        '</span>');
+    }
+    if (nextSlot) {
+      parts.push('<span class="dot-sep"></span>',
+        '<span class="tb-next"><span class="tb-goal-k">当前任务</span>' +
+          '<b class="tb-next-v">' + esc(nextSlot.title) + '</b></span>',
+        '<a class="tb-go" id="tbGo" href="#todayTodo" data-no-transition>继续学习 →</a>');
+    }
+
+    if (bar) {
+      bar.innerHTML = parts.join(' ');
+      /* 「继续学习 →」不跳页，直接把今天的待办滚到眼前并聚焦第一段没勾的 —— 
+         打完卡就停在原地，不用再找。 */
+      var goBtn = el('tbGo');
+      if (goBtn) {
+        goBtn.addEventListener('click', function (e) {
+          e.preventDefault();
+          var box = todo && todo.querySelector('.todo-item:not(.is-done)');
+          if (!box) return;
+          box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          var ck = box.querySelector('.todo-check');
+          if (ck) setTimeout(function () { ck.focus({ preventScroll: true }); }, 260);
+        });
+      }
+    }
 
     /* ---- 今日待办 + 快捷打卡：只列「主线」时段（勾完 = 当天打卡完成） ---- */
     if (todo) {
+      var keepTodo = grabCheckFocus(todo);
       if (day.rest) {
         todo.innerHTML = '<p class="todo-empty">今天是休息日，不排主线时段。</p>';
       } else {
@@ -1372,6 +1682,7 @@ void main() {
             '<ul class="todo-list">' + rows + '</ul>';
         }
       }
+      restoreCheckFocus(todo, keepTodo);
     }
   }
 
@@ -1385,7 +1696,7 @@ void main() {
       var d = todayKey();
       var k = checkKey(d, t.dataset.sid);
       if (t.checked) state.checks[k] = true; else delete state.checks[k];
-      save(); renderToday(); renderBoard(); renderCal(); renderHeroLive();
+      save(); renderChecks();
     });
     todo.addEventListener('click', function (e) {
       var b = e.target && e.target.closest ? e.target.closest('.todo-all') : null;
@@ -1397,8 +1708,32 @@ void main() {
       var slots = slotsOf(day).filter(function (sl) { return sl.kind === 'core'; });
       if (!slots.length) slots = slotsOf(day);
       slots.forEach(function (sl) { state.checks[checkKey(d, sl.id)] = true; });
-      save(); renderToday(); renderBoard(); renderCal(); renderHeroLive();
+      save(); renderChecks();
     });
+  }
+
+  /* 跨零点自动翻页：页面一直开着（或从后台切回来）时，日期变了就整套重画，
+     并把「学习日」面板拉回新的一天。以前只有刷新页面才会重算 —— 开着不动的话
+     第二天打开还是昨天的界面（米线 2026-09-30 报的问题）。
+     一分钟比一次字符串，开销可以忽略；从后台回来那次立刻比，不用等下一分钟。 */
+  function initDayRollover() {
+    var last = todayKey();
+
+    function checkDay() {
+      var now = todayKey();
+      if (now === last) return;
+      last = now;
+      var t = todayIndex();
+      var a = days();
+      if (t >= 0 && a[t]) state.sel = a[t].d;
+      renderAll();
+    }
+
+    setInterval(checkDay, 60000);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) checkDay();
+    });
+    window.addEventListener('focus', checkDay);
   }
 
   /* ----------------------------------------------------------------
@@ -1566,11 +1901,12 @@ void main() {
         '<span class="tlh-note">' +
           (day.rest ? '休息日模版' : '学习日模版') +
           ' · 所有' + (day.rest ? '休息日' : '学习日') + '共用' +
-          (state.editing ? ' · 编辑中' : '') +
+          (editOn('day') ? ' · 编辑中' : '') +
         '</span>';
     }
 
     var list = el('timeline');
+    var keepTl = grabCheckFocus(list);
     if (list) {
       list.innerHTML = '';
 
@@ -1578,7 +1914,7 @@ void main() {
         var empty = document.createElement('li');
         empty.className = 'tl-empty';
         empty.textContent = '这套模版还没有时段。' +
-          (state.editing ? '点下面的「加一段」开始排。' : '点上面「编辑计划」就能加。');
+          (editOn('day') ? '点下面的「加一段」开始排。' : '点上面的「✎ 编辑」就能加。');
         list.appendChild(empty);
       }
 
@@ -1620,13 +1956,12 @@ void main() {
           else delete state.checks[k];
           li.classList.toggle('is-done', cb.checked);
           save();
-          renderBoard();
-          renderCal();
+          renderChecks();
         });
 
         /* 点整行也能勾 */
         li.addEventListener('click', function (e) {
-          if (state.editing) return;
+          if (editOn('day')) return;
           if (e.target === cb || e.target.tagName === 'A' || e.target.tagName === 'BUTTON') return;
           cb.checked = !cb.checked;
           cb.dispatchEvent(new Event('change'));
@@ -1636,7 +1971,7 @@ void main() {
         li.appendChild(time);
         li.appendChild(body);
 
-        if (state.editing) {
+        if (editOn('day')) {
           var tools = document.createElement('div');
           tools.className = 'slot-tools';
           tools.innerHTML =
@@ -1652,13 +1987,15 @@ void main() {
         list.appendChild(li);
       });
 
-      if (state.editing) {
+      if (editOn('day')) {
         var addLi = document.createElement('li');
         addLi.className = 'tl-add-row';
         addLi.innerHTML = '<button class="step-add" type="button" data-slot-add="' + templ + '">＋ 给' +
           (day.rest ? '休息日' : '学习日') + '模版加一段</button>';
         list.appendChild(addLi);
       }
+
+      restoreCheckFocus(list, keepTl);
     }
 
     /* ---- 复盘（按日期存，周期改了也不串） ---- */
@@ -1738,6 +2075,17 @@ void main() {
       var num = b.querySelector('.tt-num');
       if (bar) bar.style.width = pct + '%';
       if (num) num.textContent = done + '/' + t.steps.length;
+      /* §5 LEVEL 1：章节进度 / 当前章节 / 预计完成也在这条轻量刷新里一起走，
+         不然勾完一阶卡片上的章节数还停在旧值。 */
+      var stat = b.querySelector('.tt-stat');
+      if (stat) stat.outerHTML = tabStatHTML(t);
+      /* v4.0（P1-3 §6）：勾完一阶后状态色要跟着走（未开始 → 进行中 → 已完成）。
+         这里只换 class，不重建面板 —— 重建会丢焦点和滚动位置。 */
+      b.classList.toggle('is-idle', !t.steps.length || done === 0);
+      b.classList.toggle('is-doing', t.steps.length > 0 && done > 0 && done < t.steps.length);
+      b.classList.toggle('is-done', t.steps.length > 0 && done >= t.steps.length);
+      /* §6 重点课程：勾完一阶后「最该推一把的那条线」可能换人，这里一起跟上 */
+      b.classList.toggle('is-key', b.getAttribute('data-track') === keyTrackId());
     });
   }
 
@@ -1780,7 +2128,7 @@ void main() {
         ' download="' + esc(code) + '-' + m.cn + '.dxf" title="' + m.tip + '">' + m.cn + '</a>';
     }).join('');
     return '<div class="sheets">' +
-      '<img class="sheet-thumb" src="assets/dxf/' + esc(code) + '-MO.png"' +
+      '<img class="sheet-thumb" src="assets/dxf/' + esc(code) + '-MO.webp"' +
       ' alt="' + esc(code) + ' 摹图预览" loading="lazy" width="320" height="226">' +
       '<div class="sheet-side">' +
         '<p class="sheet-cap">同题四练</p>' +
@@ -1814,7 +2162,7 @@ void main() {
         '<p class="step-title">' + esc(st.title) + '</p>' +
         (st.desc ? '<p class="step-desc">' + esc(st.desc) + '</p>' : '') +
         sheetHtml(st.dxf) +
-        (state.editing ? stepToolsHtml(st.sid, i, len) : '') +
+        (editOn('tracks') ? stepToolsHtml(st.sid, i, len) : '') +
       '</div>' +
     '</li>';
   }
@@ -1870,11 +2218,204 @@ void main() {
     '</div>';
   }
 
+  /* ==================================================================
+     v4.0（P1-2 §5）：三级信息层级 —— 用「已经存在」的 step.phase 字段把任务归成章节。
+     这是纯渲染层重排：不新增任何数据字段、不改 localStorage 结构、导入导出 JSON 一字不差。
+       LEVEL 1 课程 = .track-tab（模块页签，一眼看全四条线在什么状态）
+       LEVEL 2 章节 = .step-chapter（按 phase 连续分组，带本章完成度）
+       LEVEL 3 任务 = .step（原有任务卡，圆形勾选框）
+     phase 全空时（自定义计划里很常见）自动退化成「单章无标题」，
+     观感与改造前完全一致 —— 老数据不会因为这次改造变样。
+     ================================================================== */
+  function stepChapters(t) {
+    var out = [];
+    var cur = null;
+    t.steps.forEach(function (st, si) {
+      var key = (st.phase || '').trim();
+      if (!cur || cur.phase !== key) {
+        cur = { phase: key, items: [] };
+        out.push(cur);
+      }
+      cur.items.push({ st: st, si: si });
+    });
+    return out;
+  }
+
+  /* ==================================================================
+     §5 LEVEL 1：课程卡要多说四件事 —— 已完成章节 / 当前章节 / 剩余阶数 / 预计完成。
+     硬事实（先查过再写）：出厂数据里的 step 只有 { n, phase, dxf, title, desc }，
+     没有 date —— st.date 是 normalize 时兜出来的空串，只有用户自己在编辑模式里
+     加的任务才带排期（main.js 的 suggestDate）。
+     所以「预计完成」走两条路，不硬编一个好看但没依据的日期：
+       · 最后一个未完成 step 带合法日期 → 直接给日期（最准）
+       · 没有 → 给「剩 N 阶 · 约 N 个学习日」。本站一阶 = 一次学习，
+         不做任何「每天几阶」的臆测换算。
+     ================================================================== */
+  function trackStats(t) {
+    var s = state.steps[t.id] || {};
+    var chs = stepChapters(t);
+    var chDone = 0;
+    var curCh = '';
+    chs.forEach(function (ch) {
+      var d = 0;
+      ch.items.forEach(function (it) { if (s[it.st.sid]) d++; });
+      if (ch.items.length && d === ch.items.length) chDone++;
+      else if (!curCh) curCh = ch.phase || '';
+    });
+    var done = trackDone(t);
+    var lastDate = '';
+    for (var i = t.steps.length - 1; i >= 0; i--) {
+      if (!s[t.steps[i].sid] && /^\d{4}-\d{2}-\d{2}$/.test(t.steps[i].date || '')) {
+        lastDate = t.steps[i].date;
+        break;
+      }
+    }
+    return {
+      chDone: chDone,
+      chTotal: chs.length,
+      curCh: curCh,
+      done: done,
+      stepsTotal: t.steps.length,
+      left: t.steps.length - done,
+      lastDate: lastDate,
+      hasSteps: t.steps.length > 0
+    };
+  }
+
+  /* 「总学习时长」得有依据：本站没有任何「视频多长 / 一节课多久」的内容时长数据，
+     唯一诚实可算的是用户自己排的作息 —— 一个学习日能投入多少主线小时。
+     缓存指纹覆盖周期、休息规则和作息模板，任一项一变就重算。 */
+  var DAYH_CACHE = { fp: '', v: 0 };
+  function studyDayHours() {
+    var p = period();
+    var sl = state.plan.slots || DEFAULT_SLOTS;
+    var fp = [p.start, p.end, (p.restWeekdays || []).join('.'), (p.extraRest || []).join('.'),
+      (p.extraWork || []).join('.'), (sl.study || []).length,
+      (sl.study || []).map(function (x) { return x.kind + '@' + x.time; }).join(',')].join('|');
+    if (DAYH_CACHE.fp === fp) return DAYH_CACHE.v;
+
+    var all = days(), sum = 0, cnt = 0;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].rest) continue;
+      var core = (slotsOf(all[i]) || []).filter(function (x) { return x.kind === 'core'; });
+      if (!core.length) continue;
+      var h = 0;
+      core.forEach(function (x) { h += slotHours(x); });
+      sum += h; cnt++;
+    }
+    DAYH_CACHE.v = cnt ? sum / cnt : 0;
+    DAYH_CACHE.fp = fp;
+    return DAYH_CACHE.v;
+  }
+
+  /* 课程卡上那两行小字。首次渲染和勾选后的轻量刷新共用同一个函数，
+     免得两处文案各写一遍、过几天就漂移。
+     分工是固定的：上行答「我在哪」（已完成章节 / 当前章节），
+     下行答「还剩多少」（剩余阶数 / 估算时长 / 预计完成日）。 */
+  function tabStatHTML(t) {
+    if (!t.steps.length) {
+      return '<span class="tt-stat"><span class="tts-1">还没排任务</span></span>';
+    }
+    var k = trackStats(t);
+    var dayH = studyDayHours();
+    var estH = dayH > 0 ? k.stepsTotal * dayH : 0;
+    var leftH = dayH > 0 ? k.left * dayH : 0;
+
+    var l1 = [];
+    if (k.chTotal) l1.push('章节 ' + k.chDone + '/' + k.chTotal);
+    if (!k.left) l1.push('已走完');
+    else if (k.curCh) l1.push('当前 ' + esc(k.curCh));
+
+    var l2 = [];
+    if (!k.left) {
+      l2.push('共 ' + k.stepsTotal + ' 阶');
+      if (estH > 0) l2.push('≈ ' + fmtH(estH));
+    } else {
+      l2.push('剩 ' + k.left + ' 阶');
+      if (leftH > 0) l2.push('≈ ' + fmtH(leftH));
+      if (k.lastDate) l2.push('预计 ' + dayLabel(k.lastDate));
+    }
+
+    var why = dayH > 0
+      ? '一阶 ≈ 一个学习日；按你自己的作息，一个学习日约 ' + fmtH(dayH) + ' 主线'
+      : '你的作息里没有主线时段，估不出时长';
+
+    return '<span class="tt-stat" title="' + esc(why) + '">' +
+      '<span class="tts-1">' + (l1.join(' · ') || '—') + '</span>' +
+      (l2.length ? '<span class="tts-2">' + l2.join(' · ') + '</span>' : '') +
+      '</span>';
+  }
+
+  /* §6 重点课程：哪条线最该被推一把？
+     规则得有依据，不能拍脑袋 —— 已经在走、又没走完的线里，进度最高那条：
+     它离收口最近，推一下就能真正结束一条线。一条都还没开始时，
+     认当前选中的那条。这样永远恰好一条，不会出现「一个重点都没有」的空档。 */
+  function keyTrackId() {
+    var list = tracks();
+    var best = '';
+    var bestPct = -1;
+    list.forEach(function (t) {
+      var d = trackDone(t);
+      if (d > 0 && d < t.steps.length) {
+        var p = d / t.steps.length;
+        if (p > bestPct) { bestPct = p; best = t.id; }
+      }
+    });
+    if (best) return best;
+    var cur = trackById(state.track);
+    return cur ? cur.id : (list[0] ? list[0].id : '');
+  }
+
+  function chapterHtml(ch, ci, total, t, s) {
+    var done = 0;
+    var sheets = 0;
+    ch.items.forEach(function (it) {
+      if (s[it.st.sid]) done++;
+      if (it.st.dxf) sheets++;
+    });
+    var n = ch.items.length;
+    var pct = n ? Math.round(done / n * 100) : 0;
+    var isDone = n > 0 && done === n;
+    /* §5 LEVEL 2：章节要一眼看出「几个任务、几张图纸、做完没有」。
+       原稿这里写的是「视频数量 / 练习数量」—— 本站的 step 根本没有视频字段，
+       视频数没有数据源，所以不编：给「任务数 + 图纸数」两件真数据，
+       图纸数直接数 st.dxf 有没有值。 */
+    var meta = n
+      ? '<p class="sc-meta"><span>' + n + ' 个任务</span>' +
+          (sheets ? '<i class="sc-dot" aria-hidden="true"></i><span>' + sheets + ' 张图纸</span>' : '') +
+          (isDone ? '<i class="sc-dot" aria-hidden="true"></i><b class="sc-done-tag">已完成</b>' : '') +
+        '</p>'
+      : '';
+    var head = ch.phase
+      ? '<header class="sc-head">' +
+          '<div class="sc-lead">' +
+            '<p class="sc-kicker">Chapter ' + pad(ci + 1) + (total > 1 ? ' / ' + pad(total) : '') + '</p>' +
+            '<h5 class="sc-title">' + esc(ch.phase) + '</h5>' +
+            meta +
+          '</div>' +
+          '<div class="sc-prog">' +
+            '<span class="scp-bar"><i style="width:' + pct + '%"></i></span>' +
+            '<span class="scp-num"><b>' + done + '</b> / ' + n + '</span>' +
+          '</div>' +
+        '</header>'
+      : '';
+    return '<section class="step-chapter' + (ch.phase ? '' : ' is-bare') +
+        (n && done === n ? ' is-done' : '') + '">' +
+      head +
+      '<ol class="steps">' +
+        ch.items.map(function (it) { return stepHtml(it.st, it.si, t.steps.length); }).join('') +
+      '</ol>' +
+    '</section>';
+  }
+
   function panelHtml(t, i, len) {
     var done = trackDone(t);
     var pct = t.steps.length ? Math.round(done / t.steps.length * 100) : 0;
+    var chs = stepChapters(t);
     var body = t.steps.length
-      ? '<ol class="steps">' + t.steps.map(function (st, si) { return stepHtml(st, si, t.steps.length); }).join('') + '</ol>'
+      ? chs.map(function (ch, ci) {
+          return chapterHtml(ch, ci, chs.length, t, trackState(t));
+        }).join('')
       : '<p class="steps-empty">这条线还没有任务。点下面的「＋ 加一阶」开始排。</p>';
     return '<header class="tp-head">' +
         '<div class="tp-title-row">' +
@@ -1890,7 +2431,7 @@ void main() {
         (t.sub ? '<p class="tp-sub">' + esc(t.sub) + '</p>' : '') +
       '</header>' +
       body +
-      (state.editing
+      (editOn('tracks')
         ? '<div class="step-add-row"><button class="step-add" type="button" data-track="' +
           esc(t.id) + '">＋ 加一阶</button></div>'
         : '') +
@@ -1921,26 +2462,39 @@ void main() {
     tabs.innerHTML = '';
     panels.innerHTML = '';
 
+    var keyId = keyTrackId();
+
     list.forEach(function (t, i) {
       var done = trackDone(t);
       var pct = t.steps.length ? Math.round(done / t.steps.length * 100) : 0;
       var on = t.id === state.track;
 
       var b = document.createElement('div');
-      b.className = 'track-tab' + (on ? ' is-active' : '') + (state.editing ? ' is-editing' : '');
+      /* v4.0（P1-3 §6）：课程卡不再长一个样 —— 未开始 / 进行中 / 已完成三态；
+         正在学的那张再挂一个 CONTINUE LEARNING 标签，一眼知道该点哪个。
+         v4.0 补课（§6）：再给「最该推一把的那条线」加紫/蓝渐变边框（is-key）。 */
+      var tstat = !t.steps.length || done === 0 ? 'is-idle'
+        : (done >= t.steps.length ? 'is-done' : 'is-doing');
+      b.className = 'track-tab' + (on ? ' is-active' : '') +
+        (editOn('tracks') ? ' is-editing' : '') +
+        (t.id === keyId ? ' is-key' : '') + ' ' + tstat;
       b.setAttribute('role', 'tab');
       b.setAttribute('tabindex', on ? '0' : '-1');
       b.setAttribute('aria-selected', on ? 'true' : 'false');
       b.setAttribute('data-track', t.id);
       b.innerHTML =
-        '<span class="tt-idx">' + pad(i + 1) + '</span>' +
+        '<span class="tt-top">' +
+          '<span class="tt-idx">' + pad(i + 1) + '</span>' +
+          (on ? '<span class="tt-live">Continue learning</span>' : '') +
+        '</span>' +
         '<span class="tt-main">' +
           '<span class="tt-name">' + esc(t.name) + '</span>' +
           '<span class="tt-meta">' + esc(t.meta) + '</span>' +
         '</span>' +
         '<span class="tt-prog"><i style="width:' + pct + '%"></i></span>' +
         '<span class="tt-num">' + done + '/' + t.steps.length + '</span>' +
-        (state.editing ? tabToolsHtml(t.id, i, list.length) : '');
+        tabStatHTML(t) +
+        (editOn('tracks') ? tabToolsHtml(t.id, i, list.length) : '');
       b.addEventListener('click', function (e) {
         if (e.target && e.target.closest && e.target.closest('.tt-tools')) return;
         switchTrack(t.id);
@@ -1959,7 +2513,7 @@ void main() {
       bindPanel(p, t);
     });
 
-    if (state.editing) {
+    if (editOn('tracks')) {
       var add = document.createElement('button');
       add.type = 'button';
       add.className = 'track-add';
@@ -2138,6 +2692,57 @@ void main() {
   var modalSubmit = null;
   var toolsTimer = null;
 
+  /* ---------- 焦点圈禁（无障碍）：弹窗/浮层打开时 Tab 在内部循环 ----------
+     背景：WCAG 2.1.2 要求键盘焦点不能跑到模态框背后；2.4.3 要求关闭后焦点能回到原处。
+     只挂一个容器级 keydown，靠 :focus-visible 的可见焦点环配合。 */
+  var activeTrap = null;
+  function focusablesIn(container) {
+    if (!container) return [];
+    var sel = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]),' +
+      ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.prototype.filter.call(container.querySelectorAll(sel), function (n) {
+      return (n.offsetWidth > 0 || n.offsetHeight > 0) && n.getAttribute('aria-hidden') !== 'true';
+    });
+  }
+  /* 文档级兜底：容器上的 keydown 只有在「焦点已经进了容器」时才会触发。
+     通知 / 学习档案这类浮层里没有输入框，焦点会留在触发按钮上，
+     那种情况下容器根本收不到 keydown —— Tab 就大摇大摆走到浮层背后的页面上了。
+     所以再加一层捕获阶段的守卫：只要焦点不在容器内，就把它拉回来。 */
+  function trapGuard(e) {
+    if (!activeTrap || e.key !== 'Tab') return;
+    var c = activeTrap.container;
+    if (!c || c.hidden || !document.contains(c)) return;
+    if (c.contains(document.activeElement)) return;   /* 容器内部的循环交给 onKey */
+    var f = focusablesIn(c);
+    e.preventDefault();
+    if (!f.length) return;                            /* 没有可聚焦项：就地停住，仍可用 Esc 关闭 */
+    (e.shiftKey ? f[f.length - 1] : f[0]).focus();
+  }
+  function trapFocus(container, opener) {
+    /* 静默换绑：连续开不同浮层时不先把焦点弹回旧触发点 */
+    if (activeTrap) { activeTrap.container.removeEventListener('keydown', activeTrap.onKey); activeTrap = null; }
+    if (!container) return;
+    var onKey = function (e) {
+      if (e.key !== 'Tab') return;
+      var f = focusablesIn(container);
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    container.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', trapGuard, true);
+    activeTrap = { container: container, onKey: onKey, opener: opener || null };
+  }
+  function releaseFocus() {
+    if (!activeTrap) return;
+    activeTrap.container.removeEventListener('keydown', activeTrap.onKey);
+    document.removeEventListener('keydown', trapGuard, true);
+    var op = activeTrap.opener;
+    activeTrap = null;
+    if (op && op.focus && document.contains(op)) { try { op.focus(); } catch (e) { /* 元素已移除就放弃 */ } }
+  }
+
   /* ---------- 模态框（自己实现，不用 window.confirm，便于自动化测试） ---------- */
   function ensureModal() {
     if (el('modal')) return;
@@ -2175,6 +2780,7 @@ void main() {
     var m = el('modal');
     if (m) m.hidden = true;
     modalSubmit = null;
+    releaseFocus();
   }
 
   function modalError(msg) {
@@ -2183,6 +2789,7 @@ void main() {
   }
 
   function openForm(title, fields, values, onSubmit, okText) {
+    var opener = document.activeElement;
     ensureModal();
     modalSubmit = null;
     el('modalTitle').textContent = title;
@@ -2220,9 +2827,11 @@ void main() {
     el('modal').hidden = false;
     var first = el('modalBody') ? el('modalBody').querySelector('.mf-input') : null;
     if (first) first.focus();
+    trapFocus(el('modal'), opener);
   }
 
   function openConfirm(title, msg, onOk) {
+    var opener = document.activeElement;
     ensureModal();
     modalSubmit = null;
     el('modalTitle').textContent = title;
@@ -2231,36 +2840,56 @@ void main() {
     el('modalBody').innerHTML = '<p class="modal-msg">' + esc(msg) + '</p>';
     modalSubmit = function () { onOk(); closeModal(); };
     el('modal').hidden = false;
+    if (el('modalOk')) el('modalOk').focus();
+    trapFocus(el('modal'), opener);
   }
 
   /* ---------- 工具栏提示 ---------- */
-  function flashTools(msg) {
-    var h = el('toolsHint');
+  function flashTools(msg, which) {
+    which = which || 'tracks';
+    var h = editHintBox(which);
     if (!h) return;
     h.textContent = msg;
     h.classList.add('is-flash');
     clearTimeout(toolsTimer);
     toolsTimer = setTimeout(function () {
       h.classList.remove('is-flash');
-      h.textContent = state.editing
-        ? '编辑模式：点模块 / 任务 / 时段上的 ✎ 改内容，↑ ↓ 调顺序，× 删除。周期在「计划周期」里改。'
-        : '';
+      h.textContent = editOn(which) ? editHint(which) : '';
     }, 3000);
   }
 
-  function toggleEdit() {
-    state.editing = !state.editing;
-    var b = el('editToggle');
+  /* which: 'tracks' | 'day' | 'repo' | 'cad' —— 一个模块一个开关，互不牵连 */
+  function toggleEdit(which) {
+    which = which || 'tracks';
+    var on = !editOn(which);
+    if (!state.edit) state.edit = {};
+    state.edit[which] = on;
+
+    var b = editBtn(which);
     if (b) {
-      b.setAttribute('aria-pressed', state.editing ? 'true' : 'false');
-      b.classList.toggle('is-on', state.editing);
-      b.textContent = state.editing ? '✓ 退出编辑' : '✎ 编辑计划';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.classList.toggle('is-on', on);
+      b.textContent = on ? '✓ 完成' : '✎ 编辑';
     }
-    var tools = el('trackTools');
-    if (tools) tools.classList.toggle('is-editing', state.editing);
-    renderTracks();
-    renderDay();          /* 时间轴也要跟着进出编辑态（每段右边会多出 ↑↓✎×） */
-    flashTools(state.editing ? '编辑模式已开启' : '已退出编辑模式');
+
+    if (which === 'tracks') {
+      var tools = el('trackTools');
+      if (tools) tools.classList.toggle('is-editing', on);
+      renderTracks();
+    } else if (which === 'day') {
+      var dp = el('dayPanel');
+      if (dp) dp.classList.toggle('is-editing', on);
+      renderDay();          /* 时间轴进出编辑态：每段右边会多出 ↑↓✎× */
+    } else if (which === 'cad') {
+      var cb = el('cadBlock');
+      if (cb) cb.classList.toggle('is-editing', on);
+      renderGal();          /* 图纸卡片进编辑态：左上角多出一个 × */
+    } else {
+      var rp = el('repo');
+      if (rp) rp.classList.toggle('is-editing', on);
+      renderLib();
+    }
+    flashTools(on ? '编辑模式已开启' : '已退出编辑模式', which);
   }
 
   /* ---------- 模块 / 任务 编辑 ---------- */
@@ -2488,6 +3117,21 @@ void main() {
     return out;
   }
 
+  /* 把一个整块滚到「看得见」的位置：装得下就居中，装不下就顶到固定导航下面。
+     刻意不用 scrollIntoView —— 它会挑最近的滚动容器，页面里那些 overflow 祖先会把它吃掉；
+     而且滚动途中上方内容还在展开（.reveal / 懒加载），算一次就过容易差半屏。
+     顶部导航是 fixed 的（约 71px），所以兜底 padTop 给 88px。 */
+  function scrollToBlock(node, padTop) {
+    if (!node || !window.scrollTo) return;
+    var box = node.getBoundingClientRect();
+    var vh = window.innerHeight || document.documentElement.clientHeight || 900;
+    var pad = box.height <= vh - 160 ? (vh - box.height) / 2 : (padTop || 88);
+    var to = box.top + (window.pageYOffset || document.documentElement.scrollTop || 0) - pad;
+    if (to < 0) to = 0;
+    try { window.scrollTo({ top: to, behavior: 'smooth' }); }
+    catch (err) { window.scrollTo(0, to); }
+  }
+
   function openPeriod() {
     var p = period();
     pdDraft = {
@@ -2502,6 +3146,23 @@ void main() {
     var btn = el('periodToggle');
     if (btn) btn.setAttribute('aria-expanded', 'true');
     renderPeriod();
+    /* v4.1 修：面板长在「计划周期总览」里，离按钮可能有一屏远。
+       从计划板顶上那条「去设置周期」点进来时，不滚过去 = 点了没反应。
+       焦点必须**先**送，否则一个不被认的 preventScroll 会跟平滑滚动抢位置。 */
+    var firstField = el('pdStart');
+    if (firstField && firstField.focus) {
+      try { firstField.focus({ preventScroll: true }); } catch (err) {}
+    }
+    scrollToBlock(panel);
+  }
+
+  /* v4.3：「去设置周期」统一入口 —— 打开周期面板并滚过去；
+     已展开则只滚（刻意不做 toggle，否则用户点「去设置周期」反而会把面板关掉）。 */
+  function goToPeriod() {
+    var panel = el('periodPanel');
+    if (!panel) return;
+    if (panel.hidden) { openPeriod(); return; }  /* openPeriod 内部已含滚动 + 焦点 */
+    scrollToBlock(panel);
   }
 
   function closePeriod() {
@@ -2701,7 +3362,8 @@ void main() {
       reviews: state.reviews,
       notes: state.notes,
       steps: state.steps,
-      links: state.links
+      links: state.links,
+      hideSheets: state.hideSheets
     };
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     var url = URL.createObjectURL(blob);
@@ -2764,12 +3426,54 @@ void main() {
         });
       });
     }
-    if (obj.checks && typeof obj.checks === 'object') state.checks = obj.checks;
-    if (obj.reviews && typeof obj.reviews === 'object') state.reviews = obj.reviews;
-    if (Array.isArray(obj.links)) {
-      state.links = obj.links.filter(function (l) {
-        return l && typeof l === 'object' && typeof l.title === 'string' && typeof l.url === 'string';
+    /* checks：真实数据里 checks[k] 恒为 true（写入点是 main.js:1609 / 1621 / 1841，
+       取消勾选走的是 delete 而不是写 false）。所以这里的准入条件不能写成
+       typeof v === 'object' —— 那会把整份打卡进度当脏数据洗掉：导入自己刚导出的文件 = 进度清零。
+       现在做「键格式 + 值类型」双重把关：键必须是 checkKey() 的形态（顺带挡掉 __proto__ 这类键），
+       值只收 true（并向前兼容对象值），数组 / 字符串 / 数字一律丢弃。 */
+    if (obj.checks && typeof obj.checks === 'object') {
+      var ck = {};
+      Object.keys(obj.checks).forEach(function (k) {
+        if (!/^\d{4}-\d{2}-\d{2}:/.test(k)) return;
+        var v = obj.checks[k];
+        if (v === true || (v && typeof v === 'object' && !Array.isArray(v))) ck[k] = v;
       });
+      state.checks = ck;
+    }
+    /* reviews：按 {done,stuck,next} 三字段重建并字符串化，防止异常结构污染渲染 */
+    if (obj.reviews && typeof obj.reviews === 'object') {
+      var rv = {};
+      Object.keys(obj.reviews).forEach(function (k) {
+        var r = obj.reviews[k];
+        if (!r || typeof r !== 'object') return;
+        var o = {
+          done: r.done == null ? '' : String(r.done),
+          stuck: r.stuck == null ? '' : String(r.stuck),
+          next: r.next == null ? '' : String(r.next)
+        };
+        if (o.done || o.stuck || o.next) rv[k] = o;
+      });
+      state.reviews = rv;
+    }
+    /* links：导入的链接同样必须过协议白名单 —— 不能因为是「导入」就绕过 javascript:/data: 拦截 */
+    if (Array.isArray(obj.links)) {
+      state.links = obj.links.map(function (l) {
+        if (!l || typeof l !== 'object' || typeof l.title !== 'string' || typeof l.url !== 'string') return null;
+        var u = normUrl(l.url);
+        if (!u) return null;
+        return {
+          id: (typeof l.id === 'string' && l.id) ? l.id : newUid('lk'),
+          title: String(l.title),
+          url: u,
+          tag: typeof l.tag === 'string' ? l.tag : '',
+          note: typeof l.note === 'string' ? l.note : '',
+          ts: typeof l.ts === 'number' ? l.ts : Date.now()
+        };
+      }).filter(Boolean);
+    }
+    /* hideSheets：导入方删减掉的图纸。只认字符串，渲染时还会再和实际存在的图纸对一遍 */
+    if (Array.isArray(obj.hideSheets)) {
+      state.hideSheets = obj.hideSheets.filter(function (k) { return typeof k === 'string' && k; });
     }
 
     var tl = tracks();
@@ -2789,6 +3493,14 @@ void main() {
     var input = e.target;
     var f = input.files && input.files[0];
     if (!f) return;
+    /* 体积上限：本项目导出的计划 JSON 通常只有几十 KB；超过 5MB 基本不是它，先挡掉别读进内存 */
+    if (f.size > 5 * 1024 * 1024) {
+      openConfirm('导入失败',
+        '文件太大（' + (f.size / 1048576).toFixed(1) + 'MB，上限 5MB）。本应用导出的计划文件通常只有几十 KB。',
+        function () {});
+      input.value = '';
+      return;
+    }
     var reader = new FileReader();
     reader.onload = function () {
       var obj;
@@ -2829,6 +3541,7 @@ void main() {
       state.checks = {};
       state.reviews = {};
       state.links = [];
+      state.hideSheets = [];
       state.openMonths = null;
       normalizePlan();
       var tl0 = tracks();
@@ -2887,7 +3600,7 @@ void main() {
         var btn = e.target && e.target.closest ? e.target.closest('[data-tool]') : null;
         if (!btn) return;
         var k = btn.getAttribute('data-tool');
-        if (k === 'edit') toggleEdit();
+        if (k === 'edit') toggleEdit('tracks');
         else if (k === 'export') exportPlan();
         else if (k === 'import') { if (file) file.click(); }
         else if (k === 'reset') resetPlan();
@@ -2918,6 +3631,12 @@ void main() {
         else if (act === 'edit') openSlotEditor(templ, sid);
         else if (act === 'del') deleteSlot(templ, sid);
       });
+    }
+
+    /* ---- 学习日：自己的编辑开关（模块级，跟课程那栏互不牵连） ---- */
+    var dayEditBtn = el('dayEditToggle');
+    if (dayEditBtn) {
+      dayEditBtn.addEventListener('click', function () { toggleEdit('day'); });
     }
 
     /* ---- 计划周期面板 ---- */
@@ -2998,10 +3717,13 @@ void main() {
       if (galShape && s.code !== galShape) return;
       SHEET_MODES.forEach(function (m) {
         if (galMode && m.k !== galMode) return;
+        var file = s.code + '-' + m.k;
+        /* v4.2：被删减掉的图纸直接跳过 —— 搜索也不该再把它翻出来 */
+        if (isSheetHidden(file)) return;
         var hay = (s.code + ' ' + s.name + ' ' + s.part + ' ' + s.what + ' ' +
           m.cn + ' ' + m.tip).toLowerCase();
         if (q && hay.indexOf(q) < 0) return;
-        out.push({ code: s.code, shape: s, mode: m, file: s.code + '-' + m.k });
+        out.push({ code: s.code, shape: s, mode: m, file: file });
       });
     });
     return out;
@@ -3067,9 +3789,13 @@ void main() {
       }
       if (galQ.trim()) tag.push('“' + galQ.trim() + '”');
       var totalAll = REPO_SHAPES.length * SHEET_MODES.length;
+      var hid = hiddenSheets().length;
       cnt.textContent = tag.length
         ? (tag.join(' · ') + ' · ' + items.length + ' 张')
-        : (items.length + ' 张 / 共 ' + totalAll + ' 张');
+        : (items.length + ' 张 / 共 ' + totalAll + ' 张' + (hid ? ' · 已删减 ' + hid + ' 张' : ''));
+      /* v4.2：有删减才亮出「↺ 恢复全部」，没删就不占地方 */
+      var rs = el('cadRestore');
+      if (rs) rs.hidden = !hid;
     }
 
     box.innerHTML = '';
@@ -3095,8 +3821,8 @@ void main() {
       img.className = 'gal-thumb';
       img.loading = 'lazy';
       img.alt = it.shape.name + ' · ' + it.mode.cn;
-      img.src = DXF_DIR + it.file + '.png';
-      img.setAttribute('data-preview', DXF_DIR + it.file + '.png');
+      img.src = DXF_DIR + it.file + '.webp';
+      img.setAttribute('data-preview', DXF_DIR + it.file + '.webp');
       img.setAttribute('data-title', it.shape.name + ' · ' + it.mode.cn);
       img.setAttribute('data-meta', 'A3 图幅 · ' + it.mode.tip + ' · ' + it.shape.what);
       img.setAttribute('data-dl', DXF_DIR + it.file + '.dxf');
@@ -3120,6 +3846,19 @@ void main() {
       md.textContent = it.mode.cn;
       info.appendChild(nm);
       info.appendChild(md);
+
+      /* v4.2：编辑态下每张图纸左上角多一个 × —— 从仓库里收起来。
+         只是不显示，assets/dxf 里的 .webp / .dxf 一个都没动，所以随时能恢复。 */
+      if (editOn('cad')) {
+        var x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'gal-x';
+        x.setAttribute('data-gal-x', it.file);
+        x.setAttribute('aria-label', '把 ' + it.file + ' 从仓库里收起来');
+        x.title = '从仓库里收起来（顶上「↺ 恢复全部」能全放回来）';
+        x.textContent = '×';
+        card.appendChild(x);
+      }
 
       card.appendChild(img);
       card.appendChild(dl);
@@ -3316,6 +4055,16 @@ void main() {
   function links() {
     if (!Array.isArray(state.links)) state.links = [];
     return state.links;
+  }
+
+  /* v4.2：被米线删减掉的练习图纸（存 file 键）。和 links() 一样先兜底成数组再返回 */
+  function hiddenSheets() {
+    if (!Array.isArray(state.hideSheets)) state.hideSheets = [];
+    return state.hideSheets;
+  }
+
+  function isSheetHidden(file) {
+    return hiddenSheets().indexOf(file) >= 0;
   }
 
   /* 只放行 http/https，挡掉 javascript: / data: 这类可被当脚本执行的协议 */
@@ -3546,10 +4295,10 @@ void main() {
       edit.setAttribute('data-id', it.id);
       edit.textContent = '编辑';
       doRow.appendChild(open);
-      doRow.appendChild(edit);
+      if (editOn('repo')) doRow.appendChild(edit);
       body.appendChild(doRow);
 
-      card.appendChild(x);
+      if (editOn('repo')) card.appendChild(x);
       card.appendChild(body);
       box.appendChild(card);
     });
@@ -3613,7 +4362,7 @@ void main() {
       doRow.appendChild(dl);
       body.appendChild(doRow);
 
-      card.appendChild(x);
+      if (editOn('repo')) card.appendChild(x);
       card.appendChild(body);
       box.appendChild(card);
     });
@@ -3738,6 +4487,18 @@ void main() {
           renderGalFilter(); renderGal();
           return;
         }
+        /* v4.2：编辑态下把这一张从仓库里收起来 */
+        var xb = e.target && e.target.closest ? e.target.closest('[data-gal-x]') : null;
+        if (xb) {
+          var xf = xb.getAttribute('data-gal-x');
+          if (xf && !isSheetHidden(xf)) {
+            hiddenSheets().push(xf);
+            save();
+            renderGal();
+            flashTools('已删减 1 张 —— 顶上「↺ 恢复全部」能全放回来', 'cad');
+          }
+          return;
+        }
         var img = e.target && e.target.closest ? e.target.closest('[data-preview]') : null;
         if (!img) return;
         openLightbox(
@@ -3752,6 +4513,24 @@ void main() {
 
     var zipBtn = el('galZip');
     if (zipBtn) zipBtn.addEventListener('click', zipGallery);
+
+    /* ---- 资源仓库：v4.3 起没有模块级编辑开关了（按钮已按米线要求删除），
+       改 / 删 动作常显，见 editOn('repo') ---- */
+
+    /* ---- CAD 图纸仓库：自己的编辑开关（v4.2），只管「删减图纸」 ---- */
+    var cadEditBtn = el('cadEditToggle');
+    if (cadEditBtn) {
+      cadEditBtn.addEventListener('click', function () { toggleEdit('cad'); });
+    }
+    var cadRestore = el('cadRestore');
+    if (cadRestore) {
+      cadRestore.addEventListener('click', function () {
+        state.hideSheets = [];
+        save();
+        renderGal();
+        flashTools('图纸全回来了', 'cad');
+      });
+    }
 
     var repo = el('repo');
     if (repo) {
@@ -3916,7 +4695,159 @@ void main() {
     return m;
   }
 
+  /* ==================================================================
+     v4.0 补课 §8 / §9：本周学习（按天小时柱 + 完成度环）与学习连续性条。
+     两份数据都从既有 state 推导：小时数取时段 time 区间的差（slotHours），
+     完成与否取 checks。不新增任何存储字段，也不做任何「估算学习时长」。
+     ================================================================== */
+
+  /* 最近 7 天（含今天）的打卡情况 —— §9 用 */
+  function last7Days() {
+    var t = parseYmd(todayKey());
+    var out = [];
+    if (!t) return out;
+    var a = days();
+    for (var i = 6; i >= 0; i--) {
+      var d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - i);
+      var k = ymd(d);
+      var idx = indexOfDate(k);
+      var day = idx >= 0 ? a[idx] : null;
+      var pr = dayProgress(k);
+      out.push({
+        k: k,
+        w: '日一二三四五六'.charAt(d.getDay()),
+        inPeriod: !!day,
+        rest: day ? !!day.rest : false,
+        any: !!(pr && pr.done > 0),
+        full: !!(pr && pr.total > 0 && pr.done >= pr.total),
+        today: i === 0
+      });
+    }
+    return out;
+  }
+
+  /* §9 学习连续性条。刻意不做游戏化 —— 没有火焰、没有等级、没有「即将断签」的催促，
+     只是把节奏摊开给你看：连续几天、最近七天怎么样、最长的一次是多少。 */
+  function renderStreak() {
+    var host = el('streakStrip');
+    if (!host) return;
+    var cur = streak();
+    var best = bestStreak();
+    var wk = last7Days();
+    var doneDays = wk.filter(function (x) { return x.any; }).length;
+    var pips = wk.map(function (x) {
+      var cls = 'sk-pip' +
+        (x.full ? ' is-full' : (x.any ? ' is-part' : '')) +
+        (x.rest ? ' is-rest' : '') +
+        (x.today ? ' is-today' : '') +
+        (x.inPeriod ? '' : ' is-out');
+      return '<i class="' + cls + '" title="' + esc(x.k) + ' · 周' + esc(x.w) + '"></i>';
+    }).join('');
+    host.innerHTML =
+      '<div class="sk-cell sk-cell-main">' +
+        '<p class="sk-k">连续学习</p>' +
+        '<p class="sk-v"><b>' + cur + '</b><span>天</span></p>' +
+      '</div>' +
+      '<div class="sk-cell sk-cell-pips">' +
+        '<div class="sk-dots" aria-hidden="true">' + pips + '</div>' +
+        '<p class="sk-note">最近 7 天 · 有打卡 ' + doneDays + ' 天</p>' +
+      '</div>' +
+      '<div class="sk-cell sk-cell-best">' +
+        '<p class="sk-k">最长连续</p>' +
+        '<p class="sk-v"><b>' + best + '</b><span>天</span></p>' +
+      '</div>';
+  }
+
+  /* 本周（周一起算）每天真正学了几小时 + 当天排了几小时 */
+  function weekHours() {
+    var t = parseYmd(todayKey());
+    if (!t) return null;
+    var a = days();
+    if (!a.length) return null;
+    var dow = (t.getDay() + 6) % 7;                 /* 周一 = 0 */
+    var labels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    var out = [];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - dow + i);
+      var k = ymd(d);
+      var idx = indexOfDate(k);
+      var day = idx >= 0 ? a[idx] : null;
+      var h = 0, plan = 0;
+      if (day) {
+        var sl = slotsOf(day);
+        var core = sl.filter(function (x) { return x.kind === 'core'; });
+        var list = core.length ? core : sl;
+        list.forEach(function (s2) {
+          var dur = slotHours(s2);
+          plan += dur;
+          if (isChecked(k, s2.id)) h += dur;
+        });
+      }
+      out.push({
+        k: k, label: labels[i], h: h, plan: plan,
+        inPeriod: !!day, rest: day ? !!day.rest : false,
+        today: k === todayKey(), future: k > todayKey()
+      });
+    }
+    return out;
+  }
+
+  function renderWeek() {
+    var host = el('weekBars');
+    var ring = el('wkRing');
+    var note = el('weekNote');
+    if (!host) return;
+    var wk = weekHours();
+    if (!wk) {
+      host.innerHTML = '<p class="wk-empty">先设定计划周期，这一周才有坐标。</p>';
+      if (ring) ring.innerHTML = '';
+      if (note) note.textContent = '';
+      return;
+    }
+    var maxPlan = 0, doneH = 0, pastPlan = 0, totalPlan = 0, doneDays = 0;
+    wk.forEach(function (x) {
+      if (x.plan > maxPlan) maxPlan = x.plan;
+      doneH += x.h;
+      totalPlan += x.plan;
+      if (!x.future) pastPlan += x.plan;
+      if (x.h > 0) doneDays++;
+    });
+    var pct = pastPlan > 0 ? Math.round(doneH / pastPlan * 100) : 0;
+    if (pct > 100) pct = 100;
+    var R = 32;
+    var C = 2 * Math.PI * R;
+    if (ring) {
+      ring.innerHTML =
+        '<svg viewBox="0 0 80 80" class="wk-ring-svg" aria-hidden="true">' +
+          '<circle cx="40" cy="40" r="' + R + '" class="wr-track"></circle>' +
+          '<circle cx="40" cy="40" r="' + R + '" class="wr-fill" ' +
+            'stroke-dasharray="' + C.toFixed(1) + '" ' +
+            'stroke-dashoffset="' + (C * (1 - pct / 100)).toFixed(1) + '"></circle>' +
+        '</svg>' +
+        '<div class="wr-txt"><b>' + pct + '%</b><span>本周完成</span></div>';
+    }
+    host.innerHTML = wk.map(function (x) {
+      var cap = maxPlan > 0 ? Math.round(x.plan / maxPlan * 100) : 0;
+      var fill = x.plan > 0 ? Math.min(100, Math.round(x.h / x.plan * 100)) : 0;
+      var cls = 'wk-col' + (x.today ? ' is-today' : '') + (x.inPeriod ? '' : ' is-out') +
+        (x.rest ? ' is-rest' : '') + (x.future ? ' is-future' : '');
+      return '<div class="' + cls + '">' +
+        '<span class="wk-v">' + (x.h > 0 ? fmtH(x.h) : '') + '</span>' +
+        '<span class="wk-bar" style="height:' + Math.max(cap, 3) + '%">' +
+          '<i style="height:' + fill + '%"></i>' +
+        '</span>' +
+        '<span class="wk-k">' + x.label + '</span>' +
+      '</div>';
+    }).join('');
+    if (note) {
+      note.textContent = '本周已完成 ' + fmtH(doneH) + ' / 已排 ' + fmtH(totalPlan) +
+        ' · 有打卡 ' + doneDays + ' 天';
+    }
+  }
+
   function renderStats() {
+    renderStreak();
+    renderWeek();
     var best = el('sBest');
     if (best) best.innerHTML = bestStreak() + '<span class="mu">天</span>';
 
@@ -3937,6 +4868,17 @@ void main() {
     renderHeatmap();
     renderBars();
     renderTrend();
+
+    /* 首次打开：一条打卡都没有时，别让四张 0 的卡片和一片空格子干瞪眼（§15/§16） */
+    var hint = el('statHint');
+    if (hint) {
+      var none = countCheckedSlots() === 0;
+      hint.hidden = !none;
+      if (none) {
+        hint.innerHTML = '还没有任何打卡记录 —— 这里的格子、进度条和趋势都会从第一次勾选开始长出来。' +
+          '先去 <a class="empty-cta" href="#plan">计划板</a> 把今天的第一段主线勾掉。';
+      }
+    }
   }
 
   /* ---- 年度热力图：一列一周，7 行是星期 ---------- */
@@ -3948,7 +4890,7 @@ void main() {
     var note = el('hmNote');
 
     if (!a.length) {
-      wrap.innerHTML = '<p class="bars-empty">还没有设置周期。<a class="empty-cta" href="#plan">去设置周期</a></p>';
+      wrap.innerHTML = '<p class="bars-empty">还没有设置周期。<a class="empty-cta" href="#plan" data-go-period>去设置周期</a></p>';
       if (note) note.textContent = '';
       return;
     }
@@ -4029,7 +4971,7 @@ void main() {
     var a = days();
     var tn = el('trendNote');
     if (!a.length) {
-      wrap.innerHTML = '<p class="trend-empty">还没有设置周期。<a class="empty-cta" href="#plan">去设置周期</a></p>';
+      wrap.innerHTML = '<p class="trend-empty">还没有设置周期。<a class="empty-cta" href="#plan" data-go-period>去设置周期</a></p>';
       if (tn) tn.textContent = '';
       return;
     }
@@ -4430,6 +5372,100 @@ void main() {
   }
 
   /* ----------------------------------------------------------------
+     v4.1 背景空间（§3 第 6 层 / §7 尘粒 / §8 视差 / §10 §11 分区调色）
+     - 尘粒：36 颗，JS 生成；只在「精细指针 + 支持 hover + 未开减动效」时创建
+     - 分区调色：IntersectionObserver 取「离视口中心最近」的那一块，
+       写 documentElement 的 data-zone；真正的颜色变化由 CSS 的 opacity 过渡完成
+     - 视差：pointermove 写 --ap-x / --ap-y（rAF 节流，取反让光「落在物体后面」），
+       位移上限 26px，落在 §8 要求的 10–30px 内
+     全程只写两个自定义属性 + 一个 data 属性，几何、配色、缓动都在 CSS 里。
+     ---------------------------------------------------------------- */
+  function initBgSpace() {
+    var reduce = false, fine = false;
+    try {
+      reduce = !!(window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      fine = !!(window.matchMedia &&
+        window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+    } catch (e) { return; }
+
+    var page = el('auraPage');
+
+    /* ---------- §7 尘粒 ----------
+       纯 CSS：两片循环点阵（.bg-dust > .d-a / .d-b），这里不需要生成任何节点。
+       早先版本用 JS 拼 36 个带动画的粒子，实测在低端机上是这层里最贵的一项
+       （6x 节流下 26.7 → 摘掉后 73.3，单它一项就吃掉约 46fps），已换成点阵。 */
+
+    /* ---------- §10 / §11 分区调色 ---------- */
+    var ids = ['home', 'ai', 'tracks', 'repo', 'stats', 'journal'];
+    var zones = [];
+    for (var j = 0; j < ids.length; j++) {
+      var n = el(ids[j]);
+      if (n) zones.push({ id: ids[j], node: n });
+    }
+    /* #plan 是 #tracks / #repo / #stats / #journal 的祖先容器，不能观察它 ——
+       否则它永远同时「相交」，会把底下四块的换色全压掉。
+       所以改看这一块自己的头部，并在 HTML 里给它 data-zone="plan"。 */
+    var planHead = document.querySelector('[data-zone="plan"]');
+    if (planHead) zones.push({ id: 'plan', node: planHead });
+
+    if (zones.length) {
+      var pick = null, queued = false;
+
+      /* scroll-spy 的老规矩：取「顶端已经越过视口中线」里最靠下的那一块。
+         试过 IntersectionObserver 版：中间那条 10% 的带子会让「当前区块」频繁落空
+         （区块比带子高得多时根本不相交），结果滚动到一半就不再换色。
+         改成被动 scroll + rAF 节流，每帧只读 7 个 rect、不写布局 —— 更准也更省。 */
+      function choose() {
+        queued = false;
+        var mid = (window.innerHeight || 1) / 2;
+        var best = null, bestTop = -Infinity;
+        for (var k = 0; k < zones.length; k++) {
+          var top = zones[k].node.getBoundingClientRect().top;
+          if (top <= mid && top > bestTop) { bestTop = top; best = zones[k].id; }
+        }
+        if (best) pick = best;
+        if (pick && document.documentElement.getAttribute('data-zone') !== pick) {
+          document.documentElement.setAttribute('data-zone', pick);
+        }
+      }
+
+      function queue() {
+        if (queued) return;
+        queued = true;
+        window.requestAnimationFrame(choose);
+      }
+
+      window.addEventListener('scroll', queue, { passive: true });
+      window.addEventListener('resize', queue);
+      choose();
+    }
+    /* 说明：换色期间 data-zone 的读写没有常驻 rAF，也没有重排 —— 只切一次属性，
+       颜色变化本身是 CSS 的 opacity 过渡（§11 的「不生硬切换」就靠它）。 */
+
+    /* ---------- §8 鼠标视差：只推光，不推页面 ---------- */
+    if (!page || !fine || reduce) return;
+
+    var MAX = 26;
+    var raf = null, tx = 0, ty = 0;
+
+    function apply() {
+      raf = null;
+      /* 取反：指针往右，光往左挪一点 —— 视差要的是「光在物体后面」 */
+      page.style.setProperty('--ap-x', (-tx).toFixed(2) + 'px');
+      page.style.setProperty('--ap-y', (-ty).toFixed(2) + 'px');
+    }
+
+    window.addEventListener('pointermove', function (e) {
+      var w = window.innerWidth || 1;
+      var h = window.innerHeight || 1;
+      tx = ((e.clientX / w) * 2 - 1) * MAX;
+      ty = (((e.clientY / h) * 2 - 1) * MAX) * 0.6;   /* 纵向压到 6 成，配合长页面 */
+      if (!raf) raf = window.requestAnimationFrame(apply);
+    }, { passive: true });
+  }
+
+  /* ----------------------------------------------------------------
      v0.6 模块边缘辉光（BorderGlow 的零依赖移植 —— 行为部分）
      - 全站只用「一个」委托监听，不是每张卡挂一个；rAF 节流
      - 触屏设备不绑（html 没有 .can-hover 就退出）
@@ -4503,14 +5539,791 @@ void main() {
     document.addEventListener('pointerleave', function () { clear(current); current = null; });
   }
 
+  /* ==================================================================
+     v4.0 工具层 —— 搜索 / 通知 / 学习档案 / AI 学习助手
+     ──────────────────────────────────────────────────────────────────
+     零后端：
+     · 搜索与通知的原料全部来自本机 state（打卡 / 复盘 / 链接 / 图纸清单）；
+     · 学习档案（昵称 + 头像色）另开 localStorage['study-plan-profile']，
+       不碰 study-plan-v2 的任何字段；
+     · AI 助手走 BYOK：Key 由用户自己填，浏览器直连 DeepSeek 官方接口。
+       没填 Key / 断网 / 报错 / 超时 → 一律回落本地规则引擎，功能不缺失。
+       默认只发结构化最小字段；复盘全文默认不发，要发得逐次同意。
+     ================================================================== */
+  var PROFILE_KEY = 'study-plan-profile';
+  var AI_KEY_STORE = 'study-plan-ai';
+  var AI_SESSION = { key: '' };        /* 没勾「记住这台设备」时，Key 只活在这次会话里 */
+  var AI_TIMEOUT = 20000;
+
+  function tbParse(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+  }
+  function tbStore(key, obj) {
+    try {
+      if (obj === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(obj));
+    } catch (e) { /* 隐私模式写不进去：功能照用，只是不持久化 */ }
+  }
+  function cut(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? s.slice(0, n - 1) + '…' : s;
+  }
+
+  /* ---------------- 学习档案（本机，两个键都只存这里） ---------------- */
+  var AV_COLORS = [
+    'linear-gradient(140deg, rgba(139,124,255,0.34), rgba(96,118,255,0.16))',
+    'linear-gradient(140deg, rgba(96,160,255,0.32), rgba(60,90,220,0.16))',
+    'linear-gradient(140deg, rgba(126,224,174,0.30), rgba(60,170,130,0.14))',
+    'linear-gradient(140deg, rgba(255,180,87,0.30), rgba(220,120,60,0.14))',
+    'linear-gradient(140deg, rgba(255,140,190,0.30), rgba(200,80,150,0.14))'
+  ];
+  function profile() {
+    var p = tbParse(PROFILE_KEY) || {};
+    var c = Number(p.color);
+    return {
+      name: typeof p.name === 'string' ? p.name : '',
+      color: (c >= 0 && c < AV_COLORS.length) ? c : 0
+    };
+  }
+  function initialOf(p) {
+    var n = String(p.name || '').trim();
+    return n ? n.slice(0, 1) : '学';
+  }
+  function saveProfile(p) {
+    tbStore(PROFILE_KEY, { name: p.name, color: p.color });
+    paintProfile();
+  }
+  function paintProfile() {
+    var p = profile();
+    var av = el('pfAv'), na = el('nuAv'), nm = el('pfName');
+    if (av) { av.textContent = initialOf(p); av.style.background = AV_COLORS[p.color]; }
+    if (na) na.textContent = initialOf(p);
+    if (nm && document.activeElement !== nm) nm.value = p.name;
+
+    var swap = el('pfSwap');
+    if (swap) Array.prototype.forEach.call(swap.children, function (b, i) {
+      b.classList.toggle('is-on', i === p.color);
+    });
+
+    var box = el('pfStats');
+    if (!box) return;
+    var marked = 0;
+    days().forEach(function (d) { if (!d.rest && dayComplete(d.d)) marked++; });
+    var done = 0, tot = 0;
+    tracks().forEach(function (t) { done += trackDone(t); tot += (t.steps || []).length; });
+    var cells = [
+      ['连续打卡', (streak() || 0) + ' 天'],
+      ['最长连续', (bestStreak() || 0) + ' 天'],
+      ['学习日已打卡', marked + ' / ' + totalStudy()],
+      ['任务完成', done + ' / ' + tot + ' 阶']
+    ];
+    box.innerHTML = '';
+    cells.forEach(function (c) {
+      var d = document.createElement('div');
+      var k = document.createElement('div');
+      var v = document.createElement('div');
+      d.className = 'pf-cell';
+      k.className = 'pf-k';
+      v.className = 'pf-v';
+      k.textContent = c[0];
+      v.textContent = c[1];
+      d.appendChild(k);
+      d.appendChild(v);
+      box.appendChild(d);
+    });
+  }
+  function buildSwap() {
+    var swap = el('pfSwap');
+    if (!swap || swap.children.length) return;
+    var p = profile();
+    AV_COLORS.forEach(function (bg, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pf-sw' + (i === p.color ? ' is-on' : '');
+      b.style.background = bg;
+      b.setAttribute('aria-label', '头像配色 ' + (i + 1));
+      b.addEventListener('click', function () {
+        var q = profile();
+        q.color = i;
+        saveProfile(q);
+      });
+      swap.appendChild(b);
+    });
+  }
+
+  /* ---------------- 通知（全部本地算，不联网） ---------------- */
+  function nextStepOf(t) {
+    if (!t) return null;
+    var out = null;
+    (t.steps || []).forEach(function (st) {
+      if (!out && !(state.steps[t.id] && state.steps[t.id][st.sid])) out = st;
+    });
+    return out;
+  }
+  function noticeList() {
+    var out = [];
+    var p = period();
+    var tKey = todayKey();
+    var i = indexOfDate(tKey);
+    var day = i >= 0 ? days()[i] : null;
+    var dp = dayProgress(tKey);
+    var s = streak();
+    var t = trackById(state.track) || tracks()[0];
+
+    if (!totalDays()) {
+      out.push({ lv: 'warn', t: '还没设置计划周期', d: '去「计划周期」选个起止日期，这一期才有起点，打卡和统计也才算得出来。', go: '#plan' });
+    } else if (i < 0) {
+      out.push({ lv: 'info', t: '今天不在这一期里', d: '本期是 ' + p.start + ' → ' + p.end + '。想接着用就改周期，或者另开一期。', go: '#plan' });
+    } else {
+      if (day && !day.rest && dp && dp.total > 0 && dp.done < dp.total) {
+        out.push({
+          lv: s > 0 ? 'urgent' : 'info',
+          t: '今天还有 ' + (dp.total - dp.done) + ' 段主线没打勾',
+          d: s > 0 ? ('连续打卡 ' + s + ' 天 —— 今天补上就不断。') : '去「今日待办」一条条勾掉就行，不用往下滚。',
+          go: '#plan'
+        });
+      }
+      if (day && !day.rest && dp && dp.total > 0 && dp.done >= dp.total) {
+        out.push({ lv: 'ok', t: '今天的主线都打完了', d: '顺手写三句复盘 —— 明天回看时，这三句最有用。', go: '#journal' });
+      }
+      if (!day || day.rest) {
+        out.push({ lv: 'info', t: '今天是休息日', d: '不打卡也不会断连续。想学就往后推一阶。', go: '#tracks' });
+      }
+      var left = totalDays() - 1 - i;
+      if (left <= 0) {
+        out.push({ lv: 'warn', t: '今天是本期的最后一天', d: '去「计划周期」把下一期排上，别让记录断在这里。', go: '#plan' });
+      } else if (left <= 7) {
+        out.push({ lv: 'info', t: '本期还剩 ' + left + ' 天', d: '收尾前把没勾的补一补，别留尾巴。', go: '#stats' });
+      }
+    }
+
+    /* 当前这条线卡了多久：拿「下一个没完成的任务」的排期跟今天比 */
+    var nx = nextStepOf(t);
+    if (t && nx && /^\d{4}-\d{2}-\d{2}$/.test(nx.date || '')) {
+      var gap = Math.round((parseYmd(tKey) - parseYmd(nx.date)) / 86400000);
+      if (gap >= 7) {
+        out.push({
+          lv: 'warn',
+          t: '「' + t.name + '」卡了 ' + gap + ' 天',
+          d: '下一个没完成的是「' + cut(nx.title, 26) + '」，原排期是 ' + nx.date + '。',
+          go: '#tracks'
+        });
+      }
+    }
+
+    /* 备份欠账：直接复用已有的备份提醒，不另造一套判断 */
+    var bt = el('backupTip');
+    if (bt && !bt.hidden) {
+      out.push({ lv: 'warn', t: '该备份一次了', d: '学习数据只在这台设备的浏览器里，导一份 JSON 更稳。', go: '#tracks' });
+    }
+
+    if (!out.length) {
+      out.push({ lv: 'info', t: '没有要处理的', d: '节奏正常。想看看坚持的痕迹就去「数据中心」。', go: '#stats' });
+    }
+    return out;
+  }
+  function paintNotices() {
+    var items = noticeList();
+    var urgent = items.filter(function (x) { return x.lv === 'urgent' || x.lv === 'warn'; }).length;
+    var dot = el('tbDot');
+    if (dot) dot.hidden = urgent === 0;
+    var sub = el('ntSub');
+    if (sub) sub.textContent = urgent ? (urgent + ' 条要处理') : '本机提醒';
+    return items;
+  }
+  function renderNotices() {
+    var list = el('ntList');
+    if (!list) return;
+    var items = paintNotices();
+    list.innerHTML = '';
+    items.forEach(function (n) {
+      var li = document.createElement('li');
+      var mark = document.createElement('i');
+      var box = document.createElement('div');
+      var tt = document.createElement('p');
+      var dd = document.createElement('p');
+      li.className = 'nt-item lv-' + n.lv;
+      li.tabIndex = 0;
+      mark.className = 'nt-mark';
+      mark.setAttribute('aria-hidden', 'true');
+      box.className = 'nt-txt';
+      tt.className = 'nt-t';
+      dd.className = 'nt-d';
+      tt.textContent = n.t;
+      dd.textContent = n.d;
+      box.appendChild(tt);
+      box.appendChild(dd);
+      li.appendChild(mark);
+      li.appendChild(box);
+      li.addEventListener('click', function () { closeTools(); goHash(n.go); });
+      list.appendChild(li);
+    });
+  }
+
+  /* ---------------- 全站搜索（索引现场算，不建缓存） ---------------- */
+  function goHash(h) {
+    var n = h ? document.querySelector(h) : null;
+    if (n) n.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function openTrack(id) {
+    state.track = id;
+    save();
+    if (typeof renderTracks === 'function') renderTracks();
+    goHash('#tracks');
+  }
+  function pushInput(node, val) {
+    if (!node) return;
+    node.value = val;
+    node.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function searchRows(q) {
+    var rows = [];
+    [['首页', '#home'], ['计划板', '#plan'], ['AI 学习助手', '#ai'],
+     ['学习模块', '#tracks'], ['资源仓库', '#repo'],
+     ['数据中心', '#stats'], ['复盘墙', '#journal']].forEach(function (a) {
+      rows.push({ kind: '区块', title: a[0], sub: '跳到这一块', hay: a[0].toLowerCase(), go: function () { goHash(a[1]); } });
+    });
+
+    tracks().forEach(function (t) {
+      rows.push({
+        kind: '课程', title: t.name, sub: cut(t.title || t.meta || '', 40),
+        hay: (t.name + ' ' + (t.title || '') + ' ' + (t.meta || '') + ' ' + (t.sub || '')).toLowerCase(),
+        go: function () { openTrack(t.id); }
+      });
+      (t.steps || []).forEach(function (st) {
+        rows.push({
+          kind: '任务', title: st.title,
+          sub: t.name + (st.phase ? ' · ' + st.phase : '') + (st.date ? ' · ' + st.date : ''),
+          hay: (st.title + ' ' + (st.desc || '') + ' ' + (st.phase || '') + ' ' + t.name).toLowerCase(),
+          go: function () { openTrack(t.id); }
+        });
+      });
+    });
+
+    REPO_SHAPES.forEach(function (sp) {
+      SHEET_MODES.forEach(function (m) {
+        rows.push({
+          kind: '图纸', title: sp.code + '-' + m.k + ' · ' + sp.name,
+          sub: sp.part + ' · ' + m.cn,
+          hay: (sp.code + ' ' + sp.name + ' ' + sp.part + ' ' + sp.what + ' ' + m.cn + ' ' + m.tip).toLowerCase(),
+          go: function () { goHash('#repo'); pushInput(el('galSearch'), sp.code); }
+        });
+      });
+    });
+
+    Object.keys(state.reviews || {}).forEach(function (k) {
+      var r = state.reviews[k] || {};
+      var txt = [r.done, r.stuck, r.next].filter(Boolean).join(' · ');
+      if (!txt) return;
+      rows.push({
+        kind: '复盘', title: k + ' · ' + cut(r.done || r.stuck || r.next, 30),
+        sub: cut(txt, 60),
+        hay: (k + ' ' + txt).toLowerCase(),
+        go: function () { goHash('#journal'); pushInput(el('jSearch'), k); }
+      });
+    });
+
+    (state.links || []).forEach(function (l) {
+      var name = l.title || l.url || '资料';
+      rows.push({
+        kind: '资料', title: name, sub: cut(l.url || '', 46),
+        hay: (name + ' ' + (l.url || '') + ' ' + (l.tag || '') + ' ' + (l.note || '')).toLowerCase(),
+        go: function () { if (l.url) window.open(l.url, '_blank', 'noopener'); }
+      });
+    });
+
+    var key = String(q || '').trim().toLowerCase();
+    if (!key) return rows.slice(0, 60);
+    return rows.filter(function (r) { return r.hay.indexOf(key) >= 0; }).slice(0, 60);
+  }
+  var cmdRows = [];
+  var cmdIdx = 0;
+  function renderCmd() {
+    var inp = el('cmdInput'), list = el('cmdList'), foot = el('cmdFoot');
+    if (!list) return;
+    var q = inp ? inp.value : '';
+    cmdRows = searchRows(q);
+    if (cmdIdx >= cmdRows.length) cmdIdx = 0;
+    list.innerHTML = '';
+    if (!cmdRows.length) {
+      var empty = document.createElement('li');
+      empty.className = 'cmd-empty';
+      empty.textContent = '没搜到「' + cut(q, 20) + '」。换个词，或者去「学习模块」加一条。';
+      list.appendChild(empty);
+    } else {
+      cmdRows.forEach(function (r, i) {
+        var li = document.createElement('li');
+        var kd = document.createElement('span');
+        var ti = document.createElement('span');
+        var su = document.createElement('span');
+        li.className = 'cmd-item' + (i === cmdIdx ? ' is-on' : '');
+        li.setAttribute('role', 'option');
+        kd.className = 'cmd-kind';
+        ti.className = 'cmd-title';
+        su.className = 'cmd-sub';
+        kd.textContent = r.kind;
+        ti.textContent = r.title;
+        su.textContent = r.sub;
+        li.appendChild(kd);
+        li.appendChild(ti);
+        li.appendChild(su);
+        li.addEventListener('mouseenter', function () { cmdIdx = i; paintCmdOn(); });
+        li.addEventListener('click', function () { runCmd(i); });
+        list.appendChild(li);
+      });
+    }
+    if (foot) {
+      foot.innerHTML = '';
+      var a = document.createElement('span');
+      var b = document.createElement('span');
+      a.textContent = cmdRows.length + ' 条 · ↑↓ 选择 · Enter 打开';
+      b.textContent = 'Esc 关闭';
+      foot.appendChild(a);
+      foot.appendChild(b);
+    }
+  }
+  function paintCmdOn() {
+    var list = el('cmdList');
+    if (!list) return;
+    Array.prototype.forEach.call(list.children, function (li, i) {
+      if (li.classList) li.classList.toggle('is-on', i === cmdIdx);
+    });
+    var on = list.children[cmdIdx];
+    if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+  }
+  function runCmd(i) {
+    var r = cmdRows[i];
+    if (!r) return;
+    closeTools();
+    r.go();
+  }
+
+  /* ---------------- AI 助手：BYOK + 本地规则回落 ---------------- */
+  function aiCfg() {
+    var c = tbParse(AI_KEY_STORE) || {};
+    return {
+      key: AI_SESSION.key || c.key || '',
+      saved: !!c.key,
+      model: c.model || 'deepseek-chat',
+      sendReviews: !!c.sendReviews
+    };
+  }
+  function paintAiCfg() {
+    var cfg = aiCfg();
+    var k = el('aiKey'), r = el('aiRemember'), sr = el('aiSendReviews'), m = el('aiModel'), note = el('aiCfgNote');
+    if (k && document.activeElement !== k) k.value = cfg.key || '';
+    if (r) r.checked = cfg.saved;
+    if (sr) sr.checked = cfg.sendReviews;
+    if (m) m.value = cfg.model;
+    if (note) {
+      note.textContent = !cfg.key
+        ? '没填 Key 也能用：默认走本地规则引擎，功能不缺失。'
+        : (cfg.saved ? 'Key 已保存在这台设备。' : 'Key 只在本次会话有效，刷新就没了。');
+    }
+  }
+  function aiSaveCfg() {
+    var k = el('aiKey'), r = el('aiRemember'), sr = el('aiSendReviews'), m = el('aiModel');
+    var key = k ? k.value.trim() : '';
+    var remember = !!(r && r.checked);
+    var next = {
+      model: (m && m.value) || 'deepseek-chat',
+      sendReviews: !!(sr && sr.checked)
+    };
+    if (remember && key) next.key = key;
+    AI_SESSION.key = remember ? '' : key;
+    tbStore(AI_KEY_STORE, next);
+  }
+  function localAdvice() {
+    var tKey = todayKey();
+    var i = indexOfDate(tKey);
+    var day = i >= 0 ? days()[i] : null;
+    var dp = dayProgress(tKey);
+    var t = trackById(state.track) || tracks()[0];
+    var nx = nextStepOf(t);
+    var where = (t && nx) ? ('「' + t.name + '」的 ' + (nx.phase ? nx.phase + ' · ' : '') + nx.title) : '';
+    var s = streak();
+
+    if (!totalDays()) {
+      return '先把「计划周期」设好 —— 选个起止日期，这一期才有起点，打卡和统计也才算得出来。';
+    }
+    if (i < 0) {
+      return '今天不在这一期里（' + period().start + ' → ' + period().end + '）。要接着用就改周期，或者另开一期。';
+    }
+    if (day && day.rest) {
+      return '今天排的是休息日，不打卡也不会断连续。真要学，就顺手往后推一阶' + (where ? '：' + where + '。' : '。');
+    }
+    if (dp && dp.total > 0 && dp.done < dp.total) {
+      return '今天还有 ' + (dp.total - dp.done) + ' 段主线没打勾'
+        + (s > 0 ? '，你已经连着 ' + s + ' 天没断了' : '')
+        + '。' + (where ? '先把最近的一阶做完：' + where + '。' : '去「今日待办」一条条勾掉就行。');
+    }
+    if (dp && dp.total > 0) {
+      return '今天的主线都打完了。' + (where ? '还有力气就顺手推一阶：' + where + '。' : '去复盘墙写三句话收个尾。');
+    }
+    return '今天没排时段 —— 去「计划周期」看一眼作息模板，或者干脆把今天设成休息日。';
+  }
+  function aiPayload() {
+    var tKey = todayKey();
+    var i = indexOfDate(tKey);
+    var day = i >= 0 ? days()[i] : null;
+    var dp = dayProgress(tKey);
+    var t = trackById(state.track) || tracks()[0];
+    var a = days();
+    var recent = [];
+    for (var k = Math.max(0, i - 6); k <= i && k < a.length; k++) {
+      if (a[k].rest) continue;
+      var pp = dayProgress(a[k].d);
+      recent.push({ date: a[k].d, done: pp ? pp.done : 0, total: pp ? pp.total : 0 });
+    }
+    var nx = nextStepOf(t);
+    return {
+      today: tKey,
+      period: period().start + ' → ' + period().end,
+      todayIsRest: !!(day && day.rest),
+      todaySlots: dp ? { done: dp.done, total: dp.total } : null,
+      streak: streak(),
+      bestStreak: bestStreak(),
+      last7: recent,
+      tracks: tracks().map(function (x) {
+        return x.name + '：已完成 ' + trackDone(x) + '/' + (x.steps || []).length;
+      }),
+      currentTrack: t ? { name: t.name, done: trackDone(t), total: (t.steps || []).length } : null,
+      nextStep: nx ? { phase: nx.phase || '', title: nx.title, date: nx.date || '' } : null
+    };
+  }
+  function reviewDigest() {
+    var keys = Object.keys(state.reviews || {}).sort().slice(-7);
+    return keys.map(function (k) {
+      var r = state.reviews[k] || {};
+      return k + ' 完成：' + (r.done || '—') + '／卡在：' + (r.stuck || '—') + '／明天：' + (r.next || '—');
+    }).join('\n');
+  }
+  function aiFetch(question) {
+    var cfg = aiCfg();
+    if (!cfg.key) return Promise.reject(new Error('还没填 API Key'));
+    var user = '本机学习数据（JSON）：\n' + JSON.stringify(aiPayload());
+    if (question) user += '\n\n他的问题：' + question;
+    if (cfg.sendReviews) {
+      var dg = reviewDigest();
+      if (dg) user += '\n\n他同意发送的最近复盘原文：\n' + dg;
+    }
+    var sys = '你是「学习计划板」里的学习助手。使用者是新能源装备技术专业大一学生，目标是学好技术、能就业。'
+      + '规则：① 只依据给定数据里的事实，绝对不要编造数字、课程名或日期；'
+      + '② 用中文，先一句话说今天该做什么，再给最多两条可执行建议；'
+      + '③ 不要客套、不要复述数据原文；④ 全文控制在 120 字以内。';
+
+    var ctl = null, timer = null;
+    if (typeof AbortController === 'function') {
+      ctl = new AbortController();
+      timer = setTimeout(function () { ctl.abort(); }, AI_TIMEOUT);
+    }
+    var opt = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
+        temperature: 0.4,
+        max_tokens: 400,
+        stream: false
+      })
+    };
+    if (ctl) opt.signal = ctl.signal;
+
+    return fetch('https://api.deepseek.com/chat/completions', opt).then(function (r) {
+      if (timer) clearTimeout(timer);
+      if (!r.ok) {
+        return r.text().then(function (tx) {
+          throw new Error('HTTP ' + r.status + ' ' + cut(tx, 120));
+        });
+      }
+      return r.json();
+    }).then(function (j) {
+      var msg = j && j.choices && j.choices[0] && j.choices[0].message;
+      var out = msg && msg.content ? String(msg.content).trim() : '';
+      if (!out) throw new Error('返回是空的');
+      return out;
+    });
+  }
+  var aiBusy = false;
+  function speakAdvice(ask) {
+    var out = el('aiOut'), badge = el('aiBadge'), when = el('aiWhen');
+    if (!out || aiBusy) return;
+    var cfg = aiCfg();
+
+    if (!cfg.key) {
+      if (badge) { badge.textContent = '本地规则引擎'; badge.classList.remove('is-live'); }
+      if (when) when.textContent = '没填 Key，用本机规则算的';
+      out.classList.remove('is-loading');
+      out.textContent = localAdvice();
+      return;
+    }
+
+    aiBusy = true;
+    if (badge) { badge.textContent = 'DeepSeek · ' + cfg.model; badge.classList.add('is-live'); }
+    if (when) when.textContent = '正在问…';
+    out.classList.add('is-loading');
+    out.innerHTML = '<span class="sk-line"></span><span class="sk-line sk-w2"></span><span class="sk-line sk-w3"></span>';
+
+    aiFetch(ask ? '接下来三天应该怎么安排？' : '').then(function (txt) {
+      aiBusy = false;
+      out.classList.remove('is-loading');
+      out.textContent = txt;
+      if (when) {
+        when.textContent = cfg.model + ' 生成 · ' +
+          new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      }
+    }).catch(function (err) {
+      aiBusy = false;
+      out.classList.remove('is-loading');
+      var why = (err && err.name === 'AbortError') ? '请求超时' : ((err && err.message) || '请求失败');
+      out.innerHTML = '';
+      var tag = document.createElement('span');
+      tag.className = 'ai-err';
+      tag.textContent = '连不上（' + cut(why, 70) + '），先用本地规则：';
+      out.appendChild(tag);
+      out.appendChild(document.createTextNode(' ' + localAdvice()));
+      if (when) when.textContent = '已回落本地规则';
+    });
+  }
+
+  /* ---------------- 浮层开关 ---------------- */
+  var TB_MAP = { search: 'tbSearchWrap', notice: 'tbNoticeWrap', user: 'tbUserWrap' };
+  function openTools(which) {
+    var opener = document.activeElement;
+    Object.keys(TB_MAP).forEach(function (k) {
+      var w = el(TB_MAP[k]);
+      if (w) w.hidden = (k !== which);
+    });
+    var wrap = el(TB_MAP[which] || '');
+    if (which === 'search') {
+      cmdIdx = 0;
+      var inp = el('cmdInput');
+      if (inp) inp.value = '';
+      renderCmd();
+      if (inp) inp.focus();
+    }
+    if (which === 'notice') renderNotices();
+    if (which === 'user') { buildSwap(); paintProfile(); }
+    trapFocus(wrap, opener);
+    /* 通知 / 学习档案里没有「一打开就该聚焦」的输入框，焦点会留在触发按钮（浮层之外）上。
+       显式送进去一次，配合 trapGuard 才能真的圈住。搜索浮层早已聚焦输入框，不会走到这里。 */
+    if (wrap && !wrap.contains(document.activeElement)) {
+      var firstIn = focusablesIn(wrap)[0];
+      if (firstIn) { try { firstIn.focus(); } catch (err) { /* 刚被重建的节点就放弃 */ } }
+    }
+    document.body.classList.add('is-tools-open');
+  }
+  function closeTools() {
+    Object.keys(TB_MAP).forEach(function (k) {
+      var w = el(TB_MAP[k]);
+      if (w) w.hidden = true;
+    });
+    document.body.classList.remove('is-tools-open');
+    releaseFocus();
+  }
+  function toggleTools(which) {
+    var w = el(TB_MAP[which]);
+    if (w && !w.hidden) closeTools();
+    else openTools(which);
+  }
+
+  /* ---------------- 跳到主内容（无障碍 ----------------
+     skip link 的默认行为在浏览器之间不一致：实测「键盘回车激活」时只把
+     location.hash 改成 #main，焦点仍留在链接自身，下一次 Tab 自然又从导航开始，
+     skip link 等于没生效（鼠标点击反而会把焦点送进 <main>）。
+     这里显式接管，让两条路径的结果一致。 */
+  function initSkipLink() {
+    var skip = document.querySelector('.skip-link');
+    var main = el('main');
+    if (!skip || !main) return;
+    skip.addEventListener('click', function () {
+      try { main.focus(); } catch (e) { /* 忽略 */ }
+      /* 锚点跳转发生在监听器之后，下一个 tick 再确认一次焦点有没有被抢走 */
+      setTimeout(function () {
+        if (document.activeElement !== main) { try { main.focus(); } catch (e2) { /* 忽略 */ } }
+      }, 0);
+    });
+  }
+
+  /* v4.2：首屏那四步原来是四个纯文本 <li> —— 米线点了「1 设置周期」没反应，
+     连着报了两回。现在每一步都真的带他过去。 */
+  function initHeroSteps() {
+    var ol = document.querySelector('.hero-steps');
+    if (!ol) return;
+    ol.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('[data-hs-to]') : null;
+      if (!b) return;
+      var to = b.getAttribute('data-hs-to');
+
+      if (to === 'period') {
+        /* 统一走 goToPeriod()：打开面板 + 滚过去；面板已开时只滚，不会把它关掉
+           （原来直接 click('#periodToggle') 是 toggle —— 面板开着再点就被关上了） */
+        goToPeriod();
+        return;
+      }
+      if (to === 'slots') {
+        /* 「安排时段」得先能改时间轴：没进编辑态就顺手进去，再滚到时间轴 */
+        var dt = el('dayEditToggle');
+        if (dt && dt.getAttribute('aria-pressed') !== 'true') dt.click();
+        var dp = el('dayPanel');
+        if (dp) scrollToBlock(dp);
+        return;
+      }
+      if (to === 'tracks') {
+        var tk = el('tracks');
+        if (tk) scrollToBlock(tk);
+        return;
+      }
+      /* check：去今天那几条待办 */
+      var td = el('todayTodo');
+      if (td) scrollToBlock(td);
+    });
+  }
+
+  function initTools() {
+    var sb = el('tbSearch');
+    if (sb) sb.addEventListener('click', function () { toggleTools('search'); });
+    var bell = el('tbBell');
+    if (bell) bell.addEventListener('click', function () { toggleTools('notice'); });
+    var ub = el('tbUser');
+    if (ub) ub.addEventListener('click', function () { toggleTools('user'); });
+    var aiBtn = el('tbAi');
+    if (aiBtn) aiBtn.addEventListener('click', function () { closeTools(); goHash('#ai'); });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tb-close]'), function (n) {
+      n.addEventListener('click', closeTools);
+    });
+
+    var inp = el('cmdInput');
+    if (inp) {
+      inp.addEventListener('input', function () { cmdIdx = 0; renderCmd(); });
+      inp.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); cmdIdx = Math.min(cmdIdx + 1, Math.max(cmdRows.length - 1, 0)); paintCmdOn(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); cmdIdx = Math.max(cmdIdx - 1, 0); paintCmdOn(); }
+        else if (e.key === 'Enter') { e.preventDefault(); runCmd(cmdIdx); }
+      });
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeTools(); return; }
+      var tag = (document.activeElement && document.activeElement.tagName) || '';
+      var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(tag);
+      var k = e.key ? e.key.toLowerCase() : '';
+      if ((e.ctrlKey || e.metaKey) && k === 'k') { e.preventDefault(); toggleTools('search'); }
+      else if (k === '/' && !typing) { e.preventDefault(); openTools('search'); }
+    });
+
+    var nm = el('pfName');
+    if (nm) nm.addEventListener('input', function () {
+      var p = profile();
+      p.name = nm.value;
+      saveProfile(p);
+    });
+    buildSwap();
+    paintProfile();
+    var pe = el('pfExport'), pi = el('pfImport');
+    var exBtn = document.querySelector('#trackTools [data-tool="export"]');
+    var imBtn = document.querySelector('#trackTools [data-tool="import"]');
+    if (pe && exBtn) pe.addEventListener('click', function () { closeTools(); exBtn.click(); });
+    if (pi && imBtn) pi.addEventListener('click', function () { closeTools(); imBtn.click(); });
+
+    /* P2-8 复制本站链接（便于分享扩散）；非安全上下文用 execCommand 兜底 */
+    var sl = el('shareLink');
+    if (sl) sl.addEventListener('click', function () {
+      var url = location.href.split('#')[0];
+      var label = '🔗 复制本站链接';
+      var done = function (txt) {
+        sl.textContent = txt;
+        setTimeout(function () { sl.textContent = label; }, 1800);
+      };
+      var fallback = function () {
+        var ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok ? '已复制 ✓' : '复制失败，请手动复制');
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () { done('已复制 ✓'); }, fallback);
+      } else fallback();
+    });
+
+    var cfgBtn = el('aiCfgBtn');
+    if (cfgBtn) cfgBtn.addEventListener('click', function () {
+      var box = el('aiCfg');
+      if (!box) return;
+      box.hidden = !box.hidden;
+      cfgBtn.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+      if (!box.hidden) { var kk = el('aiKey'); if (kk) kk.focus(); }
+    });
+    var aiS = el('aiSave');
+    if (aiS) aiS.addEventListener('click', function () { aiSaveCfg(); paintAiCfg(); speakAdvice(true); });
+    var aiC = el('aiClear');
+    if (aiC) aiC.addEventListener('click', function () {
+      AI_SESSION.key = '';
+      tbStore(AI_KEY_STORE, null);
+      var kk = el('aiKey');
+      if (kk) kk.value = '';
+      paintAiCfg();
+      speakAdvice();
+    });
+    var aiG = el('aiGo');
+    if (aiG) aiG.addEventListener('click', function () { goHash('#plan'); });
+    var aiP = el('aiPlan');
+    if (aiP) aiP.addEventListener('click', function () { speakAdvice(true); });
+    var sr = el('aiSendReviews');
+    if (sr) sr.addEventListener('change', function () { aiSaveCfg(); paintAiCfg(); });
+
+    paintAiCfg();
+    speakAdvice();
+    paintNotices();
+
+    /* 打完卡 / 改完周期 / 写完复盘都会走 save()：
+       在这儿挂一次刷新，通知点与本地建议就不会过期。
+       有 Key 时不自动重问 —— 那是真花钱，交给用户按按钮。 */
+    var prevSave = save;
+    save = function () {
+      prevSave();
+      try {
+        paintNotices();
+        if (!aiCfg().key) speakAdvice();
+      } catch (e) { /* 刷新失败不该影响存档本身 */ }
+    };
+  }
+
+  /* v4.3：「去设置周期」入口统一绑定 —— 计划板第一步里的按钮 + 各处带 data-go-period 的链接。
+     事件委托 → 空态里 innerHTML 重渲染后依然有效。 */
+  function initGoPeriod() {
+    var fsg = el('fsGo');
+    if (fsg) fsg.addEventListener('click', goToPeriod);
+    document.addEventListener('click', function (e) {
+      var t = e.target && e.target.closest ? e.target.closest('[data-go-period]') : null;
+      if (!t) return;
+      e.preventDefault();
+      goToPeriod();
+    });
+  }
+
   function init() {
     load();
 
-    /* 默认落在「今天」；今天不在周期内就落到周期第一天 */
+    /* 每次打开都落在「今天」——存档里的 sel 是上次看的那一天，
+       昨天选的日期不该留到第二天（米线 2026-09-30 报的问题）。
+       只有「今天不在周期内」（还没开始 / 已结束）才退回周期第一天。 */
     var a = days();
-    if (indexOfDate(state.sel) < 0) {
+    if (!a.length) {
+      state.sel = '';
+    } else {
       var t = todayIndex();
-      state.sel = (t >= 0 && a[t]) ? a[t].d : (a[0] ? a[0].d : '');
+      if (t >= 0 && a[t]) state.sel = a[t].d;
+      else if (indexOfDate(state.sel) < 0) state.sel = a[0].d;
     }
 
     initCounters();
@@ -4518,10 +6331,13 @@ void main() {
     initHoverCapability();
     initModuleGlow();
     initTodayTodo();
+    initDayRollover();
     initStickyNav();
     initCubeParallax();
+    initBgSpace();
     initMenu();
     initReveals();
+    initPageTransition();
     initReview();
 
     renderAll();
@@ -4539,12 +6355,22 @@ void main() {
       if (st40) st40.style.display = 'none';
       var statsBox = document.querySelector('.stats');
       if (statsBox) statsBox.classList.add('stats-3');
+
+      /* 首次引导：空白模板下用户面对空日历容易懵 —— 给一条明确的「第一步」
+         （按钮点击行为由 initGoPeriod() 统一绑定，本地态与发布态都生效） */
+      var fs = el('firstStep');
+      if (fs) fs.hidden = false;
     }
     initTrackTools();
+    initGoPeriod();
     initRepo();
     initStats();
     initJournal();
     initBackupTip();
+    /* 工具层放在最后：通知要读 #backupTip 的显隐，也要读上面各块渲染完的数据 */
+    initTools();
+    initSkipLink();
+    initHeroSteps();
 
     /* 移动端 / 键盘：周期面板与预览层都能用 Esc 关掉 */
     document.addEventListener('keydown', function (e) {

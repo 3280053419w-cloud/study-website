@@ -1,0 +1,58 @@
+name: Publish empty template to GitHub Pages
+
+# 解决的问题（P0）：
+#   源码 main 分支里的 EMPTY_TEMPLATE = false 是「演示态」（带 4 条学习线 + 40 张图纸），
+#   方便本地开发预览；但线上发布必须是 true 的「空白模板」，且**不随站分发演示资产**。
+#   以前这一步靠人手改、人手上传，容易漏 —— 现在整条链路都在这里。
+
+#   组装逻辑收在 scripts/build-dist.mjs（本地与 CI 跑同一条命令），本文件只负责
+#   「压缩 → 冒烟 → 发布」三段。之所以要把冒烟卡在发布之前：terser 会改名，
+#   「压缩坏了什么」只有拿真实浏览器加载压缩后的那一份才能回答；
+#   坏包宁可不发，也不能等用户打开才发现。
+
+#   ⚠ 首次启用后：到 GitHub 仓库 Settings → Pages，把 Source 改成 gh-pages 分支。
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Assemble dist（切空模板开关 + 剔除演示资产 + 静态门禁）
+        run: node scripts/build-dist.mjs
+
+      - name: Minify（只压缩发布产物，源码保持可读 —— 零构建约束不破）
+        run: |
+          set -e
+          npx --yes terser dist/main.js -c -m -o dist/main.js
+          npx --yes csso-cli dist/styles.css -o dist/styles.css
+          node --check dist/main.js
+          echo "—— min 后体积 ——"
+          ls -l dist/main.js dist/styles.css
+
+      - name: 装浏览器驱动（只给发布产物冒烟用）
+        run: npm install --prefix scripts --no-audit --no-fund puppeteer-core
+
+      - name: 发布产物冒烟（压缩后真的还能跑，且真的是空白模板）
+        run: node scripts/verify_dist.mjs
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true
