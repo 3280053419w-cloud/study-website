@@ -310,6 +310,13 @@ const firstFocusable = await page.evaluate(() => {
 });
 check('C01 skip link 是 DOM 里第一个可聚焦元素', /skip-link/.test(firstFocusable), firstFocusable);
 
+/* 关键前置：`:focus` 只在**文档处于聚焦状态**时才匹配。
+   无头容器里浏览器窗口可能从未获得过焦点，于是 activeElement 已经是 skip link、
+   `:focus` 那条 CSS 却不生效 —— 滑入停在 translateY(-200%)，看起来像「没进视口」。
+   本地 Windows 上窗口有焦点，所以这条差异只会在 CI 上露出来（第一次跑 CI 时逮到的）。
+   先把它拿到前台，验的才是 skip link 的行为，而不是「窗口有没有焦点」。 */
+await page.bringToFront();
+await page.evaluate(() => { window.focus(); });
 await page.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
 await page.keyboard.press('Tab');
 await wait(250);
@@ -321,6 +328,8 @@ const skipVis = await page.evaluate(() => {
     focused: document.activeElement === n,
     onScreen: r.bottom > 0 && r.top < innerHeight && r.width > 0,
     opacity: cs.opacity, visibility: cs.visibility,
+    rect: [Math.round(r.top), Math.round(r.bottom), Math.round(r.width)],
+    transform: cs.transform,
   };
 });
 check('C02 首次 Tab 落到 skip link 且它进入视口（不是只藏在屏幕外）',
@@ -381,11 +390,40 @@ check('C06 通知浮层同样圈禁 + 关闭后焦点还原到 #tbBell',
   escapedN.length === 0 && noticeClosed.hidden && noticeClosed.focused === 'tbBell',
   `逃逸 ${escapedN.length} 次；${JSON.stringify(noticeClosed)}`);
 
+/* 打开模态框：工具层是浮层，`page.click` 是按坐标点 —— 动画还没停或被别的层压着时会点空，
+   于是「模态框压根没开」。以前这会以两种面目出现：C07a 假红，紧接着下一句取
+   `document.getElementById('modal').contains` 撞 null，**整个套件崩掉、连报告都出不来**
+   （这是最费时间的失败形态：看起来像环境抖动，其实是被测流程真没走到）。
+   所以改成：点一次 → 等它真的开 → 没开就再点一次；下面所有读 `#modal` 的地方一律 null-safe。 */
+async function openModalVia(sel) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.evaluate((s) => {
+      const b = document.querySelector(s);
+      if (b) b.scrollIntoView({ block: 'center' });
+    }, sel);
+    await wait(250);
+    try {
+      await page.click(sel);
+    } catch (e) {
+      /* 元素暂时不可点（浮层动画中）→ 落到下一轮重试，而不是把套件崩掉 */
+      await wait(300);
+      continue;
+    }
+    const opened = await page
+      .waitForFunction(() => {
+        const m = document.getElementById('modal');
+        return !!m && !m.hidden;
+      }, { timeout: 2500 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) return true;
+  }
+  return false;
+}
+
 /* 模态框（用「恢复默认」这种真实按钮打开，能真正验证焦点还原） */
-await page.evaluate(() => { const b = document.querySelector('[data-tool="reset"]'); b.scrollIntoView({ block: 'center' }); });
+await openModalVia('[data-tool="reset"]');
 await wait(250);
-await page.click('[data-tool="reset"]');
-await wait(350);
 const modalOpen = await page.evaluate(() => {
   const m = document.getElementById('modal');
   if (!m || m.hidden) return { open: false };
@@ -394,15 +432,15 @@ const modalOpen = await page.evaluate(() => {
 check('C07a 模态框打开后焦点进入框内（不是留在背景按钮上）',
   modalOpen.open && modalOpen.inside, JSON.stringify(modalOpen));
 
-/* 这里的 evaluate 加一次重试：按下 Tab 后页面可能正在重渲染（焦点圈禁本身会改 DOM），
-   CDP 侧的 execution context 会短暂失效并抛 `CdpFrame.evaluate` 错 —— 那是环境抖动，
-   不是「焦点真的逃逸」。重试后仍取真实结果，所以不掩盖缺陷；
-   而这条抖动以前会在 CI 上偶发打红（本地重跑即过，属于最费时间的那种失败）。 */
 let escapedM = 0;
 const focusInsideModal = async () => {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await page.evaluate(() => document.getElementById('modal').contains(document.activeElement));
+      return await page.evaluate(() => {
+        const m = document.getElementById('modal');
+        if (!m) return false; /* 模态框不在 → 记作焦点逃逸，照实进报告，不崩 */
+        return m.contains(document.activeElement);
+      });
     } catch (e) {
       if (attempt >= 1) throw e;
       await wait(150);
@@ -420,10 +458,13 @@ await page.screenshot({ path: path.join(OUT, 'v4b-modal.png') });
 
 await page.keyboard.press('Escape');
 await wait(350);
-const modalClosed = await page.evaluate(() => ({
-  hidden: document.getElementById('modal').hidden,
-  focusedTool: document.activeElement ? (document.activeElement.getAttribute('data-tool') || '') : '',
-}));
+const modalClosed = await page.evaluate(() => {
+  const m = document.getElementById('modal');
+  return {
+    hidden: m ? m.hidden : null, /* null = 模态框压根没建起来，与「关不掉」区分开 */
+    focusedTool: document.activeElement ? (document.activeElement.getAttribute('data-tool') || '') : '',
+  };
+});
 check('C07c Esc 关闭模态框且焦点还原到「恢复默认」按钮',
   modalClosed.hidden && modalClosed.focusedTool === 'reset', JSON.stringify(modalClosed));
 
@@ -538,10 +579,28 @@ check('G03 打开就落在「今天」：存档里还留着昨天，面板也必
    做法：把浏览器时区挪到「一定跨了一天」的那一侧，再抛一次 visibilitychange。
    本地 19 点前往西挪 19 小时能落回前一天；19 点后往东挪 6 小时能落到后一天 ——
    两个方向验的是同一件事：日期一变，界面必须自己跟过去。 */
-const g4hour = await page.evaluate(() => new Date().getHours());
-const g4tz = g4hour < 19 ? 'Pacific/Pago_Pago' : 'Pacific/Kiritimati';
+/* 选时区不能按「本机几点」拍 —— 那样只有 UTC+8 的机器成立。
+   CI 跑在 UTC，下午 13 点往西挪 11 小时仍落在同一天，压根没跨天，断言只能假红。
+   改成**算**出来：世界时区横跨 UTC-12 ~ UTC+14（26 小时 > 24），
+   所以任意时刻总有一个时区「今天」与当前不同 —— 逐个用 Intl 试，取第一个真换天的。 */
+const g4tz = await page.evaluate(() => {
+  const now = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const base = now.getFullYear() + '-' + p(now.getMonth() + 1) + '-' + p(now.getDate());
+  const cands = ['Pacific/Kiritimati', 'Etc/GMT+12', 'Pacific/Pago_Pago', 'Etc/GMT-14'];
+  for (const tz of cands) {
+    let d;
+    try {
+      d = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(now);
+    } catch (e) { continue; }
+    if (d !== base) return tz;
+  }
+  return '';
+});
 const g4before = await page.evaluate(() => (document.getElementById('dpKicker') || {}).textContent || '');
-await page.emulateTimezone(g4tz);
+if (g4tz) await page.emulateTimezone(g4tz);
 await wait(250);
 await page.evaluate(() => { document.dispatchEvent(new Event('visibilitychange')); });
 await wait(700);
