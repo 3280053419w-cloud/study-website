@@ -154,6 +154,20 @@ const cspOf = (page) => page.evaluate(() => window.__cspV || []);
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900 });
 wire(page, 'main');
+
+/* 让页面「以为自己有焦点」。
+   为什么必须开：按 Selectors 规范，`:focus` 匹配的前提是**元素是活动元素、且它所在的文档有焦点**；
+   无头容器里没有真正获得焦点的窗口，文档永远 hasFocus() === false ——
+   于是 skip link 的 `:focus { transform: translateY(0) }` 永不生效，滑入停在 -200%，
+   看起来像「焦点没进视口」，实则是环境里根本没有焦点这回事。
+   这正是 CDP 提供 Emulation.setFocusEmulationEnabled 的用途。 */
+try {
+  const cdp = page.createCDPSession ? await page.createCDPSession() : await page.target().createCDPSession();
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+} catch (e) {
+  console.log('  （注：无法开启焦点模拟，与 :focus 相关的断言可能不成立）');
+}
+
 await page.evaluateOnNewDocument(CSP_HOOK);
 await page.goto(`${ORIGIN}/index.html`, { waitUntil: 'networkidle2' });
 await wait(700);
@@ -310,13 +324,12 @@ const firstFocusable = await page.evaluate(() => {
 });
 check('C01 skip link 是 DOM 里第一个可聚焦元素', /skip-link/.test(firstFocusable), firstFocusable);
 
-/* 关键前置：`:focus` 只在**文档处于聚焦状态**时才匹配。
-   无头容器里浏览器窗口可能从未获得过焦点，于是 activeElement 已经是 skip link、
-   `:focus` 那条 CSS 却不生效 —— 滑入停在 translateY(-200%)，看起来像「没进视口」。
-   本地 Windows 上窗口有焦点，所以这条差异只会在 CI 上露出来（第一次跑 CI 时逮到的）。
-   先把它拿到前台，验的才是 skip link 的行为，而不是「窗口有没有焦点」。 */
+/* 前置：让页面处于前台。
+   注意 `window.focus()` 在这里**没用**（实测：被另一个页面抢走焦点后它抢不回来，
+   skip link 依旧停在 -200%）；真正让 `:focus` 重新匹配的是页面创建时开启的
+   CDP 焦点模拟 `Emulation.setFocusEmulationEnabled` —— 成因与对照实验见
+   `_build/_focus_probe.mjs`（② 复现 → ③ window.focus() 无效 → ④ 焦点模拟有效）。 */
 await page.bringToFront();
-await page.evaluate(() => { window.focus(); });
 await page.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
 await page.keyboard.press('Tab');
 await wait(250);
