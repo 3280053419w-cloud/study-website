@@ -154,20 +154,6 @@ const cspOf = (page) => page.evaluate(() => window.__cspV || []);
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900 });
 wire(page, 'main');
-
-/* 让页面「以为自己有焦点」。
-   为什么必须开：按 Selectors 规范，`:focus` 匹配的前提是**元素是活动元素、且它所在的文档有焦点**；
-   无头容器里没有真正获得焦点的窗口，文档永远 hasFocus() === false ——
-   于是 skip link 的 `:focus { transform: translateY(0) }` 永不生效，滑入停在 -200%，
-   看起来像「焦点没进视口」，实则是环境里根本没有焦点这回事。
-   这正是 CDP 提供 Emulation.setFocusEmulationEnabled 的用途。 */
-try {
-  const cdp = page.createCDPSession ? await page.createCDPSession() : await page.target().createCDPSession();
-  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
-} catch (e) {
-  console.log('  （注：无法开启焦点模拟，与 :focus 相关的断言可能不成立）');
-}
-
 await page.evaluateOnNewDocument(CSP_HOOK);
 await page.goto(`${ORIGIN}/index.html`, { waitUntil: 'networkidle2' });
 await wait(700);
@@ -317,6 +303,24 @@ check('B06 font-src 自足：Inter 四档 + 点阵标题字体均已 loaded（�
   interLoaded >= 4 && pixLoaded >= 1, `Inter loaded=${interLoaded} · Geist loaded=${pixLoaded} · 合计 ${fonts.length} 个 face`);
 
 /* ---------- C. 无障碍三件套 ---------- */
+
+/* 需要「这一页是前台可见页」才能量几何时用它：开焦点模拟 → 跑 → 关掉（不影响后面的断言）。
+   为什么需要：无头环境里这一页可能是**后台标签页**，Chrome 会推迟样式重算，
+   getComputedStyle / getBoundingClientRect 读回的是冻结的旧值 ——
+   实测即使把显形类手动加上、再等 1.5 秒，transform 依旧是 -200%
+   （对照实验见 scripts/focus_probe.mjs）。 */
+async function withFocusEmulation(fn) {
+  const cdp = page.createCDPSession ? await page.createCDPSession() : await page.target().createCDPSession();
+  try {
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    await wait(250);
+    return await fn();
+  } finally {
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: false }).catch(() => {});
+    await cdp.detach().catch(() => {});
+  }
+}
+
 const firstFocusable = await page.evaluate(() => {
   const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
   const all = Array.from(document.querySelectorAll(sel)).filter((n) => n.offsetWidth > 0 || n.offsetHeight > 0);
@@ -324,30 +328,41 @@ const firstFocusable = await page.evaluate(() => {
 });
 check('C01 skip link 是 DOM 里第一个可聚焦元素', /skip-link/.test(firstFocusable), firstFocusable);
 
-/* 前置：让页面处于前台。
-   注意 `window.focus()` 在这里**没用**（实测：被另一个页面抢走焦点后它抢不回来，
-   skip link 依旧停在 -200%）；真正让 `:focus` 重新匹配的是页面创建时开启的
-   CDP 焦点模拟 `Emulation.setFocusEmulationEnabled` —— 成因与对照实验见
-   `_build/_focus_probe.mjs`（② 复现 → ③ window.focus() 无效 → ④ 焦点模拟有效）。 */
+/* C02：首次 Tab 落到 skip link，且它真的滑进视口。
+   拆成「机制」与「几何」两条，各为自己那件事负责 —— 这条断言在 CI 上长期红，
+   根因不是站点而是环境：`:focus` 要求文档持有焦点，且无头里这页可能是后台标签页
+   （推迟样式重算 → 几何值冻结）。三轮外力修法（window.focus() / 焦点模拟 /
+   强制伪类）全部实测无效，最终产品侧改成由 focus/blur 事件维护显形状态类
+   （main.js 的 initSkipLink），机制从此与环境无关。全过程见 scripts/focus_probe.mjs。 */
 await page.bringToFront();
 await page.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
 await page.keyboard.press('Tab');
-await wait(250);
-const skipVis = await page.evaluate(() => {
+await wait(300);
+const skipMech = await page.evaluate(() => {
   const n = document.querySelector('.skip-link');
-  const r = n.getBoundingClientRect();
-  const cs = getComputedStyle(n);
   return {
     focused: document.activeElement === n,
-    onScreen: r.bottom > 0 && r.top < innerHeight && r.width > 0,
-    opacity: cs.opacity, visibility: cs.visibility,
-    rect: [Math.round(r.top), Math.round(r.bottom), Math.round(r.width)],
-    transform: cs.transform,
+    engaged: n.classList.contains('is-focused'),
   };
 });
-check('C02 首次 Tab 落到 skip link 且它进入视口（不是只藏在屏幕外）',
-  skipVis.focused && skipVis.onScreen && skipVis.opacity !== '0' && skipVis.visibility !== 'hidden',
-  JSON.stringify(skipVis));
+check('C02a 首次 Tab 落到 skip link，且显形状态已挂上（机制，不依赖环境是否给焦点）',
+  skipMech.focused && skipMech.engaged, JSON.stringify(skipMech));
+
+const skipGeo = await withFocusEmulation(() =>
+  page.evaluate(() => {
+    const n = document.querySelector('.skip-link');
+    const r = n.getBoundingClientRect();
+    const cs = getComputedStyle(n);
+    return {
+      onScreen: r.bottom > 0 && r.top < innerHeight && r.width > 0,
+      opacity: cs.opacity, visibility: cs.visibility,
+      rect: [Math.round(r.top), Math.round(r.bottom), Math.round(r.width)],
+      transform: cs.transform,
+    };
+  }));
+check('C02b 前台可见时它真的滑进视口（几何取证，不是只藏在屏幕外）',
+  skipGeo.onScreen && skipGeo.opacity !== '0' && skipGeo.visibility !== 'hidden',
+  JSON.stringify(skipGeo));
 
 await page.keyboard.press('Enter');
 await wait(250);

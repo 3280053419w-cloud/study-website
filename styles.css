@@ -7651,7 +7651,11 @@ html[data-zone="journal"] { --ap-warm-o: 0.6;  --ap-cool-o: 0.6; }
   transform: translateY(-200%);
   transition: transform 0.2s ease;
 }
-.skip-link:focus {
+/* 显形：`:focus` 是标准写法，`.is-focused` 是等效的显式状态
+   —— 后者由 main.js 的 focus/blur 事件维护，用来绕开「`:focus` 要求文档本身有焦点」
+   这一前提在某些环境下不成立的问题（键盘用户会看不见这个链接）。 */
+.skip-link:focus,
+.skip-link.is-focused {
   transform: translateY(0);
   outline: 2px solid #fff;
   outline-offset: 2px;

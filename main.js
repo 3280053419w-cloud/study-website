@@ -6137,6 +6137,18 @@ void main() {
     var skip = document.querySelector('.skip-link');
     var main = el('main');
     if (!skip || !main) return;
+
+    /* 显形不能只靠 `:focus` 伪类。
+       按 Selectors 规范，`:focus` 匹配要求「元素是活动元素、**且它所在的文档有焦点**」；
+       而文档有没有焦点，在某些环境里拿不到（无头容器、后台标签页窗口）——
+       那时键盘用户按下 Tab，焦点确实落在 skip link 上、它却还藏在屏幕外。
+       实测三种「从外面抢焦点」的办法都治不了：window.focus()、CDP 焦点模拟
+       （本机 Edge 有效、CI 的 Chrome 无效）、CSS.forcePseudoState（强制伪类也盖不过
+       「文档无焦点」这个前提）。所以改成由**元素自己的焦点事件**驱动显形，
+       与伪类匹配条件解耦 —— 成因与逐格对照见 scripts/focus_probe.mjs。 */
+    skip.addEventListener('focus', function () { skip.classList.add('is-focused'); });
+    skip.addEventListener('blur', function () { skip.classList.remove('is-focused'); });
+
     skip.addEventListener('click', function () {
       try { main.focus(); } catch (e) { /* 忽略 */ }
       /* 锚点跳转发生在监听器之后，下一个 tick 再确认一次焦点有没有被抢走 */
